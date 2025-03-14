@@ -10,11 +10,18 @@ import {
   TouchableWithoutFeedback
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
+import { RootStackParamList } from '../navigation/types';
+import { Button } from '../components/common';
+
+type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList>;
 
 export default function HomeScreen() {
+  const navigation = useNavigation<HomeScreenNavigationProp>();
   const { userData, updateUserStatus, currentUser } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
@@ -117,6 +124,11 @@ export default function HomeScreen() {
     Keyboard.dismiss();
   };
   
+  // Navigate to error handling demo screen
+  const navigateToErrorHandling = () => {
+    navigation.navigate('ErrorHandling');
+  };
+  
   return (
     <TouchableWithoutFeedback onPress={dismissKeyboard}>
       <ScrollView 
@@ -205,6 +217,17 @@ export default function HomeScreen() {
               Eat fiber-rich foods like fruits, vegetables, and whole grains.
             </Text>
           </View>
+        </View>
+        
+        <View style={styles.devSection}>
+          <Text style={styles.sectionTitle}>Developer Tools</Text>
+          <Button
+            title="Error Handling Demo"
+            onPress={navigateToErrorHandling}
+            variant="outline"
+            leftIcon={<Ionicons name="warning-outline" size={18} color="#6366f1" />}
+            style={styles.demoButton}
+          />
         </View>
       </ScrollView>
     </TouchableWithoutFeedback>
@@ -341,5 +364,20 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#4b5563',
+  },
+  devSection: {
+    margin: 15,
+    marginTop: 0,
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  demoButton: {
+    marginTop: 10,
   },
 }); 
