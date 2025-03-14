@@ -1,10 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  ScrollView, 
+  RefreshControl, 
+  Keyboard,
+  TouchableWithoutFeedback
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { firestore } from '../firebase/config';
 
 export default function HomeScreen() {
-  const { userData, updateUserStatus } = useAuth();
+  const { userData, updateUserStatus, currentUser } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     totalShits: userData?.totalShits || 0,
@@ -12,6 +23,8 @@ export default function HomeScreen() {
     isShitting: userData?.isShitting || false,
     shitStartTime: userData?.lastShitStartTime || 0,
   });
+  
+  const [currentDuration, setCurrentDuration] = useState(0);
   
   // Update stats when userData changes
   useEffect(() => {
@@ -25,6 +38,45 @@ export default function HomeScreen() {
     }
   }, [userData]);
   
+  // Set up real-time listener for user data
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    
+    const userDoc = doc(firestore, 'users', currentUser.uid);
+    const unsubscribe = onSnapshot(userDoc, (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const data = docSnapshot.data();
+        setStats({
+          totalShits: data.totalShits || 0,
+          averageShitDuration: data.averageShitDuration || 0,
+          isShitting: data.isShitting || false,
+          shitStartTime: data.lastShitStartTime || 0,
+        });
+      }
+    }, (error) => {
+      console.error("Error listening to user document:", error);
+    });
+    
+    return () => unsubscribe();
+  }, [currentUser]);
+  
+  // Update timer for current shit duration
+  useEffect(() => {
+    let interval: NodeJS.Timeout | undefined;
+    
+    if (stats.isShitting && stats.shitStartTime) {
+      interval = setInterval(() => {
+        setCurrentDuration(Date.now() - stats.shitStartTime);
+      }, 1000);
+    } else {
+      setCurrentDuration(0);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [stats.isShitting, stats.shitStartTime]);
+  
   // Format duration in minutes and seconds
   const formatDuration = (milliseconds: number) => {
     const totalSeconds = Math.floor(milliseconds / 1000);
@@ -36,19 +88,20 @@ export default function HomeScreen() {
   // Calculate current shit duration if user is shitting
   const getCurrentShitDuration = () => {
     if (stats.isShitting && stats.shitStartTime) {
-      return Date.now() - stats.shitStartTime;
+      return currentDuration;
     }
     return 0;
   };
   
   // Toggle shit status
-  const toggleShitStatus = async () => {
+  const toggleShitStatus = useCallback(async () => {
     try {
+      console.log("Toggling shit status to:", !stats.isShitting);
       await updateUserStatus(!stats.isShitting);
     } catch (error) {
       console.error('Error updating status:', error);
     }
-  };
+  }, [stats.isShitting, updateUserStatus]);
   
   // Handle refresh
   const onRefresh = async () => {
@@ -59,95 +112,102 @@ export default function HomeScreen() {
     }, 1000);
   };
   
+  // Dismiss keyboard when tapping outside input
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
+  };
+  
   return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      <View style={styles.header}>
-        <Text style={styles.greeting}>
-          Hello, {userData?.displayName || 'Friend'}!
-        </Text>
-        <Text style={styles.statusText}>
-          {stats.isShitting ? 'Currently Shitting' : 'Not Shitting'}
-        </Text>
-      </View>
-      
-      <View style={styles.statusCard}>
-        <TouchableOpacity 
-          style={[
-            styles.statusButton, 
-            stats.isShitting ? styles.activeButton : styles.inactiveButton
-          ]}
-          onPress={toggleShitStatus}
-        >
-          <Ionicons 
-            name={stats.isShitting ? 'water' : 'water-outline'} 
-            size={32} 
-            color="#fff" 
-          />
-          <Text style={styles.statusButtonText}>
-            {stats.isShitting ? 'End Shit' : 'Start Shit'}
+    <TouchableWithoutFeedback onPress={dismissKeyboard}>
+      <ScrollView 
+        style={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <View style={styles.header}>
+          <Text style={styles.greeting}>
+            Hello, {userData?.displayName || 'Friend'}!
           </Text>
-        </TouchableOpacity>
+          <Text style={styles.statusText}>
+            {stats.isShitting ? 'Currently Shitting' : 'Not Shitting'}
+          </Text>
+        </View>
         
-        {stats.isShitting && (
-          <View style={styles.timerContainer}>
-            <Text style={styles.timerLabel}>Current Duration:</Text>
-            <Text style={styles.timerValue}>
-              {formatDuration(getCurrentShitDuration())}
+        <View style={styles.statusCard}>
+          <TouchableOpacity 
+            style={[
+              styles.statusButton, 
+              stats.isShitting ? styles.activeButton : styles.inactiveButton
+            ]}
+            onPress={toggleShitStatus}
+          >
+            <Ionicons 
+              name={stats.isShitting ? 'water' : 'water-outline'} 
+              size={32} 
+              color="#fff" 
+            />
+            <Text style={styles.statusButtonText}>
+              {stats.isShitting ? 'End Shit' : 'Start Shit'}
+            </Text>
+          </TouchableOpacity>
+          
+          {stats.isShitting && (
+            <View style={styles.timerContainer}>
+              <Text style={styles.timerLabel}>Current Duration:</Text>
+              <Text style={styles.timerValue}>
+                {formatDuration(getCurrentShitDuration())}
+              </Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.statsContainer}>
+          <Text style={styles.sectionTitle}>Your Stats</Text>
+          
+          <View style={styles.statCard}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{stats.totalShits}</Text>
+              <Text style={styles.statLabel}>Total Shits</Text>
+            </View>
+            
+            <View style={styles.statDivider} />
+            
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>
+                {stats.averageShitDuration ? formatDuration(stats.averageShitDuration) : '0m 0s'}
+              </Text>
+              <Text style={styles.statLabel}>Average Duration</Text>
+            </View>
+          </View>
+        </View>
+        
+        <View style={styles.tipsContainer}>
+          <Text style={styles.sectionTitle}>Shit Tips</Text>
+          
+          <View style={styles.tipCard}>
+            <Ionicons name="bulb-outline" size={24} color="#6366f1" style={styles.tipIcon} />
+            <Text style={styles.tipText}>
+              Stay hydrated! Drinking water helps prevent constipation.
             </Text>
           </View>
-        )}
-      </View>
-      
-      <View style={styles.statsContainer}>
-        <Text style={styles.sectionTitle}>Your Stats</Text>
-        
-        <View style={styles.statCard}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{stats.totalShits}</Text>
-            <Text style={styles.statLabel}>Total Shits</Text>
-          </View>
           
-          <View style={styles.statDivider} />
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>
-              {stats.averageShitDuration ? formatDuration(stats.averageShitDuration) : '0m 0s'}
+          <View style={styles.tipCard}>
+            <Ionicons name="time-outline" size={24} color="#6366f1" style={styles.tipIcon} />
+            <Text style={styles.tipText}>
+              Try to maintain a regular schedule for bowel movements.
             </Text>
-            <Text style={styles.statLabel}>Average Duration</Text>
+          </View>
+          
+          <View style={styles.tipCard}>
+            <Ionicons name="nutrition-outline" size={24} color="#6366f1" style={styles.tipIcon} />
+            <Text style={styles.tipText}>
+              Eat fiber-rich foods like fruits, vegetables, and whole grains.
+            </Text>
           </View>
         </View>
-      </View>
-      
-      <View style={styles.tipsContainer}>
-        <Text style={styles.sectionTitle}>Shit Tips</Text>
-        
-        <View style={styles.tipCard}>
-          <Ionicons name="bulb-outline" size={24} color="#6366f1" style={styles.tipIcon} />
-          <Text style={styles.tipText}>
-            Stay hydrated! Drinking water helps prevent constipation.
-          </Text>
-        </View>
-        
-        <View style={styles.tipCard}>
-          <Ionicons name="time-outline" size={24} color="#6366f1" style={styles.tipIcon} />
-          <Text style={styles.tipText}>
-            Try to maintain a regular schedule for bowel movements.
-          </Text>
-        </View>
-        
-        <View style={styles.tipCard}>
-          <Ionicons name="nutrition-outline" size={24} color="#6366f1" style={styles.tipIcon} />
-          <Text style={styles.tipText}>
-            Eat fiber-rich foods like fruits, vegetables, and whole grains.
-          </Text>
-        </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </TouchableWithoutFeedback>
   );
 }
 

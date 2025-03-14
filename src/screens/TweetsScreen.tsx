@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -22,60 +22,73 @@ export default function TweetsScreen() {
   const [loading, setLoading] = useState(true);
   const [newTweet, setNewTweet] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const inputRef = useRef<TextInput>(null);
   
-  // Fetch tweets
+  // Fetch tweets with real-time updates
   useEffect(() => {
-    const fetchTweets = async () => {
-      setLoading(true);
-      
+    const tweetsQuery = query(
+      collection(firestore, 'tweets'),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+    
+    // Set up real-time listener for tweets
+    const unsubscribe = onSnapshot(tweetsQuery, async (querySnapshot) => {
       try {
-        // Get tweets from Firestore
-        const tweetsQuery = query(
-          collection(firestore, 'tweets'),
-          orderBy('timestamp', 'desc'),
-          limit(20)
-        );
-        
-        const querySnapshot = await getDocs(tweetsQuery);
         const tweetsList: Tweet[] = [];
         
-        for (const doc of querySnapshot.docs) {
-          const tweetData = doc.data();
+        for (const document of querySnapshot.docs) {
+          const tweetData = document.data();
+          
+          // Skip documents with no authorId
+          if (!tweetData.authorId) continue;
           
           // Get author info
-          const authorDoc = await getDoc(doc(firestore, 'users', tweetData.authorId));
-          const authorData = authorDoc.exists() ? authorDoc.data() : null;
+          const authorDocRef = doc(firestore, 'users', tweetData.authorId);
+          const authorDoc = await getDoc(authorDocRef);
+          const authorData = authorDoc.exists() ? authorDoc.data() : {};
           
           tweetsList.push({
-            id: doc.id,
+            id: document.id,
             authorId: tweetData.authorId,
-            authorName: authorData?.displayName || 'Unknown User',
-            authorPhotoURL: authorData?.photoURL || null,
+            authorName: authorData.displayName || 'Unknown User',
+            authorPhotoURL: authorData.photoURL || null,
             content: tweetData.content,
             timestamp: tweetData.timestamp,
             likes: tweetData.likes || 0,
-            isShitting: authorData?.isShitting || false,
+            isShitting: authorData.isShitting || false,
           });
         }
         
         setTweets(tweetsList);
+        setLoading(false);
       } catch (error) {
         console.error('Error fetching tweets:', error);
-      } finally {
         setLoading(false);
       }
-    };
+    }, (error) => {
+      console.error("Error in tweets listener:", error);
+      setLoading(false);
+    });
     
-    fetchTweets();
+    return () => unsubscribe();
   }, []);
   
+  // Dismiss keyboard
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
+  };
+  
   // Post a new tweet
-  const handlePostTweet = async () => {
+  const handlePostTweet = useCallback(async () => {
     if (!userData?.uid || !newTweet.trim()) return;
     
     setSubmitting(true);
+    Keyboard.dismiss();
     
     try {
+      console.log("Posting tweet:", newTweet.trim());
+      
       await addDoc(collection(firestore, 'tweets'), {
         authorId: userData.uid,
         content: newTweet.trim(),
@@ -84,42 +97,40 @@ export default function TweetsScreen() {
         likedBy: [],
       });
       
-      // Clear input and refresh tweets
+      // Clear input
       setNewTweet('');
-      // In a real app, you would either fetch tweets again or add the new tweet to the state
+      console.log("Tweet posted successfully");
     } catch (error) {
       console.error('Error posting tweet:', error);
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [userData, newTweet]);
   
   // Format timestamp
   const formatTimestamp = (timestamp: any) => {
     if (!timestamp) return 'Just now';
     
     const now = new Date();
-    const tweetDate = timestamp.toDate();
-    const diffMs = now.getTime() - tweetDate.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
+    const date = timestamp.toDate();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
     
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays}d ago`;
-    
-    return tweetDate.toLocaleDateString();
+    if (diffInSeconds < 60) {
+      return `${diffInSeconds}s ago`;
+    } else if (diffInSeconds < 3600) {
+      return `${Math.floor(diffInSeconds / 60)}m ago`;
+    } else if (diffInSeconds < 86400) {
+      return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
   };
   
-  // Render tweet item
+  // Render a tweet
   const renderTweetItem = ({ item }: { item: Tweet }) => (
-    <View style={styles.tweetItem}>
+    <View style={styles.tweetCard}>
       <View style={styles.tweetHeader}>
-        <View style={styles.authorContainer}>
+        <View style={styles.authorInfo}>
           {item.authorPhotoURL ? (
             <Image source={{ uri: item.authorPhotoURL }} style={styles.authorAvatar} />
           ) : (
@@ -127,90 +138,75 @@ export default function TweetsScreen() {
               <Text style={styles.avatarText}>{item.authorName.charAt(0)}</Text>
             </View>
           )}
-          
           <View>
             <Text style={styles.authorName}>{item.authorName}</Text>
-            <Text style={styles.tweetTime}>{formatTimestamp(item.timestamp)}</Text>
+            <View style={styles.statusContainer}>
+              {item.isShitting && (
+                <View style={styles.shittingBadge}>
+                  <Ionicons name="water" size={12} color="#fff" />
+                  <Text style={styles.shittingText}>Shitting</Text>
+                </View>
+              )}
+              <Text style={styles.timestamp}>{formatTimestamp(item.timestamp)}</Text>
+            </View>
           </View>
         </View>
-        
-        {item.isShitting && (
-          <View style={styles.shittingBadge}>
-            <Ionicons name="water" size={12} color="#fff" />
-            <Text style={styles.shittingText}>Shitting</Text>
-          </View>
-        )}
       </View>
       
       <Text style={styles.tweetContent}>{item.content}</Text>
-      
-      <View style={styles.tweetActions}>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="heart-outline" size={20} color="#6b7280" />
-          <Text style={styles.actionText}>{item.likes}</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="chatbubble-outline" size={20} color="#6b7280" />
-          <Text style={styles.actionText}>Reply</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="share-social-outline" size={20} color="#6b7280" />
-          <Text style={styles.actionText}>Share</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
   
   return (
-    <View style={styles.container}>
-      <View style={styles.composeContainer}>
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="What's happening?"
-            value={newTweet}
-            onChangeText={setNewTweet}
-            multiline
-            maxLength={280}
-          />
+    <TouchableWithoutFeedback onPress={dismissKeyboard}>
+      <View style={styles.container}>
+        <View style={styles.composeContainer}>
+          <View style={styles.inputContainer}>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              placeholder="What's happening on the toilet?"
+              multiline
+              value={newTweet}
+              onChangeText={setNewTweet}
+            />
+          </View>
+          
+          <TouchableOpacity 
+            style={[
+              styles.postButton,
+              (!newTweet.trim() || submitting) && styles.disabledButton
+            ]}
+            onPress={handlePostTweet}
+            disabled={!newTweet.trim() || submitting}
+          >
+            <Text style={styles.postButtonText}>
+              {submitting ? 'Posting...' : 'Post'}
+            </Text>
+          </TouchableOpacity>
         </View>
         
-        <TouchableOpacity 
-          style={[
-            styles.postButton,
-            (!newTweet.trim() || submitting) && styles.disabledButton
-          ]}
-          onPress={handlePostTweet}
-          disabled={!newTweet.trim() || submitting}
-        >
-          <Text style={styles.postButtonText}>
-            {submitting ? 'Posting...' : 'Post'}
-          </Text>
-        </TouchableOpacity>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#6366f1" />
+            <Text style={styles.loadingText}>Loading tweets...</Text>
+          </View>
+        ) : tweets.length > 0 ? (
+          <FlatList
+            data={tweets}
+            renderItem={renderTweetItem}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.tweetsList}
+          />
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="chatbubble-ellipses" size={60} color="#d1d5db" />
+            <Text style={styles.emptyText}>No tweets yet</Text>
+            <Text style={styles.emptySubtext}>Be the first to share your thoughts!</Text>
+          </View>
+        )}
       </View>
-      
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6366f1" />
-          <Text style={styles.loadingText}>Loading tweets...</Text>
-        </View>
-      ) : tweets.length > 0 ? (
-        <FlatList
-          data={tweets}
-          renderItem={renderTweetItem}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.tweetsList}
-        />
-      ) : (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="chatbubble-ellipses" size={60} color="#d1d5db" />
-          <Text style={styles.emptyText}>No tweets yet</Text>
-          <Text style={styles.emptySubtext}>Be the first to share your thoughts!</Text>
-        </View>
-      )}
-    </View>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -239,7 +235,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366f1',
     borderRadius: 20,
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     alignSelf: 'flex-end',
   },
   disabledButton: {
@@ -247,13 +243,14 @@ const styles = StyleSheet.create({
   },
   postButtonText: {
     color: '#fff',
+    fontSize: 16,
     fontWeight: 'bold',
-    fontSize: 14,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   loadingText: {
     marginTop: 10,
@@ -263,7 +260,7 @@ const styles = StyleSheet.create({
   tweetsList: {
     padding: 15,
   },
-  tweetItem: {
+  tweetCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 15,
@@ -277,10 +274,10 @@ const styles = StyleSheet.create({
   tweetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
   },
-  authorContainer: {
+  authorInfo: {
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -300,25 +297,26 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   avatarText: {
-    fontSize: 16,
-    fontWeight: 'bold',
     color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   authorName: {
     fontSize: 16,
     fontWeight: 'bold',
   },
-  tweetTime: {
-    fontSize: 12,
-    color: '#6b7280',
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   shittingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ef4444',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     borderRadius: 12,
+    marginRight: 6,
   },
   shittingText: {
     color: '#fff',
@@ -326,26 +324,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 4,
   },
+  timestamp: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
   tweetContent: {
     fontSize: 16,
     lineHeight: 22,
     marginBottom: 15,
-  },
-  tweetActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    paddingTop: 10,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  actionText: {
-    marginLeft: 5,
-    fontSize: 14,
-    color: '#6b7280',
   },
   emptyContainer: {
     flex: 1,
@@ -354,14 +340,15 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#6b7280',
     marginTop: 10,
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#9ca3af',
     marginTop: 5,
+    textAlign: 'center',
   },
 }); 
