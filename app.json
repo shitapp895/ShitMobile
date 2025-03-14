@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "ShitApp Mobile",
+    "slug": "shitapp-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "FIREBASE_API_KEY": "AIzaSyAnisQHPXgtcLj0YBMRyjV6FZQmJEuVwUQ",
+      "FIREBASE_AUTH_DOMAIN": "shitapplocal.firebaseapp.com",
+      "FIREBASE_PROJECT_ID": "shitapplocal",
+      "FIREBASE_STORAGE_BUCKET": "shitapplocal.firebasestorage.app",
+      "FIREBASE_MESSAGING_SENDER_ID": "241380768686",
+      "FIREBASE_APP_ID": "1:241380768686:ios:60a7ab2dff3cf4e24e263f",
+      "FIREBASE_DATABASE_URL": "https://shitapplocal-default-rtdb.firebaseio.com",
+      "eas": {
+        "projectId": "your-expo-project-id"
+      }
+    }
+  }
+}
