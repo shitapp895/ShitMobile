@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 
 import { useAuth } from '../hooks/useAuth';
@@ -13,7 +13,7 @@ import ErrorHandlingScreen from '../screens/examples/ErrorHandlingScreen';
 import { theme } from '../theme';
 
 // Create the root stack navigator
-const Stack = createStackNavigator<RootStackParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /**
  * App state manager that handles app state changes
