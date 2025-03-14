@@ -154,7 +154,7 @@ export default function TweetsScreen() {
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
     
     if (diffInSeconds < 60) {
-      return `${diffInSeconds}s ago`;
+      return 'less than 1 min';
     } else if (diffInSeconds < 3600) {
       return `${Math.floor(diffInSeconds / 60)}m ago`;
     } else if (diffInSeconds < 86400) {
