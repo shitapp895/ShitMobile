@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import { ref, set, onValue, onDisconnect, get } from 'firebase/database';
 import { doc, setDoc, getDoc, updateDoc, collection } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { auth, firestore, database } from '../firebase/config';
 
@@ -306,6 +307,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       // Setup disconnect handler to remove this session when the app closes
       onDisconnect(ref(database, `status/${currentUser.uid}/sessions/${sessionId}`)).remove();
+      
+      // 3. Update AsyncStorage for our app state management
+      try {
+        await AsyncStorage.setItem('@ShitApp:isShitting', isShitting ? 'true' : 'false');
+        await AsyncStorage.setItem('@ShitApp:lastActiveTimestamp', currentTime.toString());
+      } catch (storageError) {
+        console.error('Error updating AsyncStorage:', storageError);
+        // Continue anyway - the Firebase updates are more important
+      }
       
     } catch (error) {
       console.error('Error updating user status:', error);
