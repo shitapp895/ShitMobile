@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
 import { firestore, database } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,6 +27,7 @@ export default function TweetsScreen() {
   const [newTweet, setNewTweet] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
+  const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
   
   // Fetch tweets with real-time updates
   useEffect(() => {
@@ -163,6 +164,62 @@ export default function TweetsScreen() {
     }
   };
   
+  // Add function to delete a tweet
+  const handleDeleteTweet = useCallback(async (tweetId: string) => {
+    if (!userData?.uid) return;
+    
+    // Find the tweet to confirm it belongs to the current user
+    const tweetToDelete = tweets.find(tweet => tweet.id === tweetId);
+    
+    if (!tweetToDelete) {
+      console.error('Tweet not found');
+      return;
+    }
+    
+    // Verify the tweet belongs to the current user
+    if (tweetToDelete.authorId !== userData.uid) {
+      console.error('Cannot delete someone else\'s tweet');
+      Alert.alert('Error', 'You can only delete your own tweets');
+      return;
+    }
+    
+    // Confirm deletion with user
+    Alert.alert(
+      'Delete Tweet',
+      'Are you sure you want to delete this tweet?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeletingTweetId(tweetId);
+              
+              // Delete the tweet document from Firestore
+              await deleteDoc(doc(firestore, 'tweets', tweetId));
+              console.log('Tweet deleted successfully');
+              
+              // Update local state to remove the deleted tweet
+              setTweets(currentTweets => 
+                currentTweets.filter(tweet => tweet.id !== tweetId)
+              );
+            } catch (error) {
+              console.error('Error deleting tweet:', error);
+              Alert.alert('Error', 'Failed to delete tweet. Please try again.');
+            } finally {
+              setDeletingTweetId(null);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [tweets, userData]);
+  
   // Render a tweet
   const renderTweetItem = ({ item }: { item: Tweet }) => (
     <View style={styles.tweetCard}>
@@ -188,6 +245,21 @@ export default function TweetsScreen() {
             </View>
           </View>
         </View>
+        
+        {/* Delete button - only shown for user's own tweets */}
+        {userData?.uid === item.authorId && (
+          <TouchableOpacity 
+            style={styles.deleteButton}
+            onPress={() => handleDeleteTweet(item.id)}
+            disabled={deletingTweetId === item.id}
+          >
+            {deletingTweetId === item.id ? (
+              <ActivityIndicator size="small" color="#f87171" />
+            ) : (
+              <Ionicons name="trash-outline" size={18} color="#f87171" />
+            )}
+          </TouchableOpacity>
+        )}
       </View>
       
       <Text style={styles.tweetContent}>{item.content}</Text>
@@ -387,5 +459,9 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 5,
     textAlign: 'center',
+  },
+  deleteButton: {
+    padding: 8,
+    borderRadius: 20,
   },
 }); 
