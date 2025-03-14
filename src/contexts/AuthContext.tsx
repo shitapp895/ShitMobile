@@ -13,6 +13,9 @@ import { doc, setDoc, getDoc, updateDoc, collection } from 'firebase/firestore';
 
 import { auth, firestore, database } from '../firebase/config';
 
+// Generate a unique session ID for this app instance
+const sessionId = Math.random().toString(36).substring(2);
+
 interface UserData {
   uid: string;
   email: string | null;
@@ -176,33 +179,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Login user
   async function login(email: string, password: string) {
     try {
-      console.log('Attempting to log in with:', { email });
-      await signInWithEmailAndPassword(auth, email, password);
+      console.log('Attempting to login with:', email);
+      
+      // Sign in with email and password
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log('Login successful');
-    } catch (error: any) {
-      console.error('Error logging in:', error);
       
-      let errorMessage = 'Failed to log in. Please check your credentials and try again.';
+      // Update status in both Firestore and Realtime Database
+      const currentTime = Date.now();
       
-      if (error.code) {
-        switch(error.code) {
-          case 'auth/user-not-found':
-          case 'auth/wrong-password':
-            errorMessage = 'Invalid email or password. Please check and try again.';
-            break;
-          case 'auth/too-many-requests':
-            errorMessage = 'Too many failed login attempts. Please try again later or reset your password.';
-            break;
-          case 'auth/network-request-failed':
-            errorMessage = 'Network error. Please check your internet connection and try again.';
-            break;
-          case 'auth/invalid-credential':
-            errorMessage = 'Invalid credentials. Please check your API keys and Firebase configuration.';
-            break;
+      // 1. Reset shitting status in Firestore
+      const userDocRef = doc(firestore, 'users', userCredential.user.uid);
+      await updateDoc(userDocRef, {
+        isShitting: false,
+        lastActive: currentTime
+      });
+      
+      // 2. Reset status in Realtime Database
+      const statusRef = ref(database, `status/${userCredential.user.uid}`);
+      const statusSnapshot = await get(statusRef);
+      const statusData = statusSnapshot.exists() ? statusSnapshot.val() : {};
+      
+      await set(statusRef, {
+        isOnline: true,
+        isShitting: false,
+        lastActive: currentTime,
+        lastShitStartTime: null,
+        sessions: { ...(statusData.sessions || {}), [sessionId]: true }
+      });
+      
+      // Set up disconnect handler
+      onDisconnect(ref(database, `status/${userCredential.user.uid}/sessions/${sessionId}`)).remove();
+      
+    } catch (error) {
+      console.error('Login error:', error);
+      
+      // Improve error messages for common issues
+      if (error instanceof Error) {
+        const errorCode = error.name || '';
+        
+        if (errorCode === AuthErrorCodes.INVALID_LOGIN_CREDENTIALS) {
+          throw new Error('Invalid email or password. Please try again.');
+        } else if (errorCode === AuthErrorCodes.TOO_MANY_ATTEMPTS_TRY_LATER) {
+          throw new Error('Too many login attempts. Please try again later.');
+        } else {
+          throw new Error('Failed to log in. Please check your credentials and try again.');
         }
+      } else {
+        throw new Error('An unexpected error occurred during login.');
       }
-      
-      throw new Error(errorMessage);
     }
   }
 
@@ -229,13 +254,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!currentUser) return;
     
     try {
+      const currentTime = Date.now();
+      
+      // 1. First update the user document in Firestore
       const userDocRef = doc(firestore, 'users', currentUser.uid);
       
       if (isShitting) {
         // Starting a shit session
         await updateDoc(userDocRef, {
           isShitting: true,
-          lastShitStartTime: Date.now(),
+          lastShitStartTime: currentTime,
         });
       } else {
         // Ending a shit session
@@ -243,7 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userData = userDoc.data() as UserData;
         
         if (userData.lastShitStartTime) {
-          const shitDuration = Date.now() - userData.lastShitStartTime;
+          const shitDuration = currentTime - userData.lastShitStartTime;
           const totalShits = (userData.totalShits || 0) + 1;
           const totalShitDuration = (userData.totalShitDuration || 0) + shitDuration;
           const averageShitDuration = totalShitDuration / totalShits;
@@ -260,6 +288,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
         }
       }
+      
+      // 2. Now ALSO update the Realtime Database to stay in sync with web app
+      // Get the current status to preserve any existing sessions
+      const statusRef = ref(database, `status/${currentUser.uid}`);
+      const statusSnapshot = await get(statusRef);
+      const statusData = statusSnapshot.exists() ? statusSnapshot.val() : {};
+      
+      // Update the status with new shitting state while preserving sessions
+      await set(statusRef, {
+        isOnline: true,
+        isShitting: isShitting,
+        lastActive: currentTime,
+        lastShitStartTime: isShitting ? currentTime : null,
+        sessions: { ...(statusData.sessions || {}), [sessionId]: true },
+      });
+      
+      // Setup disconnect handler to remove this session when the app closes
+      onDisconnect(ref(database, `status/${currentUser.uid}/sessions/${sessionId}`)).remove();
+      
     } catch (error) {
       console.error('Error updating user status:', error);
       throw error;

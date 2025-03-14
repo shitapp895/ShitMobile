@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-import { firestore } from '../firebase/config';
+import { ref, onValue } from 'firebase/database';
+import { firestore, database } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
 
 interface Tweet {
@@ -15,6 +16,9 @@ interface Tweet {
   likes: number;
   isShitting: boolean;
 }
+
+// Object to store status listeners
+const statusListeners: {[key: string]: () => void} = {};
 
 export default function TweetsScreen() {
   const { userData } = useAuth();
@@ -48,7 +52,7 @@ export default function TweetsScreen() {
           const authorDoc = await getDoc(authorDocRef);
           const authorData = authorDoc.exists() ? authorDoc.data() : {};
           
-          tweetsList.push({
+          const tweet = {
             id: document.id,
             authorId: tweetData.authorId,
             authorName: authorData.displayName || 'Unknown User',
@@ -57,7 +61,12 @@ export default function TweetsScreen() {
             timestamp: tweetData.timestamp,
             likes: tweetData.likes || 0,
             isShitting: authorData.isShitting || false,
-          });
+          };
+          
+          tweetsList.push(tweet);
+          
+          // Setup individual status listeners for each author
+          setupStatusListener(tweet.authorId, tweetsList);
         }
         
         setTweets(tweetsList);
@@ -71,8 +80,36 @@ export default function TweetsScreen() {
       setLoading(false);
     });
     
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      // Clean up all status listeners
+      Object.values(statusListeners).forEach(unsubscribe => unsubscribe());
+    };
   }, []);
+  
+  // Setup a status listener for an individual author
+  const setupStatusListener = (authorId: string, tweetsList: Tweet[]) => {
+    // Skip if we already have a listener for this author
+    if (statusListeners[authorId]) return;
+    
+    // Set up listener for this author's status
+    const statusRef = ref(database, `status/${authorId}`);
+    const unsubscribe = onValue(statusRef, (snapshot) => {
+      const status = snapshot.val() || {};
+      
+      // Update tweets for this author with new status
+      setTweets(currentTweets => 
+        currentTweets.map(tweet => 
+          tweet.authorId === authorId 
+            ? { ...tweet, isShitting: status.isShitting || false } 
+            : tweet
+        )
+      );
+    });
+    
+    // Store the unsubscribe function
+    statusListeners[authorId] = unsubscribe;
+  };
   
   // Dismiss keyboard
   const dismissKeyboard = () => {
