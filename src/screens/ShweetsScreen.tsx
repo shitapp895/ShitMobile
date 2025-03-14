@@ -6,7 +6,7 @@ import { ref, onValue } from 'firebase/database';
 import { firestore, database } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
 
-interface Tweet {
+interface Shweet {
   id: string;
   authorId: string;
   authorName: string;
@@ -20,64 +20,64 @@ interface Tweet {
 // Object to store status listeners
 const statusListeners: {[key: string]: () => void} = {};
 
-export default function TweetsScreen() {
+export default function ShweetsScreen() {
   const { userData } = useAuth();
-  const [tweets, setTweets] = useState<Tweet[]>([]);
+  const [shweets, setShweets] = useState<Shweet[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newTweet, setNewTweet] = useState('');
+  const [newShweet, setNewShweet] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
-  const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
+  const [deletingShweetId, setDeletingShweetId] = useState<string | null>(null);
   
-  // Fetch tweets with real-time updates
+  // Fetch shweets with real-time updates
   useEffect(() => {
-    const tweetsQuery = query(
+    const shweetsQuery = query(
       collection(firestore, 'tweets'),
       orderBy('timestamp', 'desc'),
       limit(50)
     );
     
-    // Set up real-time listener for tweets
-    const unsubscribe = onSnapshot(tweetsQuery, async (querySnapshot) => {
+    // Set up real-time listener for shweets
+    const unsubscribe = onSnapshot(shweetsQuery, async (querySnapshot) => {
       try {
-        const tweetsList: Tweet[] = [];
+        const shweetsList: Shweet[] = [];
         
         for (const document of querySnapshot.docs) {
-          const tweetData = document.data();
+          const shweetData = document.data();
           
           // Skip documents with no authorId
-          if (!tweetData.authorId) continue;
+          if (!shweetData.authorId) continue;
           
           // Get author info
-          const authorDocRef = doc(firestore, 'users', tweetData.authorId);
+          const authorDocRef = doc(firestore, 'users', shweetData.authorId);
           const authorDoc = await getDoc(authorDocRef);
           const authorData = authorDoc.exists() ? authorDoc.data() : {};
           
-          const tweet = {
+          const shweet = {
             id: document.id,
-            authorId: tweetData.authorId,
+            authorId: shweetData.authorId,
             authorName: authorData.displayName || 'Unknown User',
             authorPhotoURL: authorData.photoURL || null,
-            content: tweetData.content,
-            timestamp: tweetData.timestamp,
-            likes: tweetData.likes || 0,
+            content: shweetData.content,
+            timestamp: shweetData.timestamp,
+            likes: shweetData.likes || 0,
             isShitting: authorData.isShitting || false,
           };
           
-          tweetsList.push(tweet);
+          shweetsList.push(shweet);
           
           // Setup individual status listeners for each author
-          setupStatusListener(tweet.authorId, tweetsList);
+          setupStatusListener(shweet.authorId, shweetsList);
         }
         
-        setTweets(tweetsList);
+        setShweets(shweetsList);
         setLoading(false);
       } catch (error) {
-        console.error('Error fetching tweets:', error);
+        console.error('Error fetching shweets:', error);
         setLoading(false);
       }
     }, (error) => {
-      console.error("Error in tweets listener:", error);
+      console.error("Error in shweets listener:", error);
       setLoading(false);
     });
     
@@ -89,7 +89,7 @@ export default function TweetsScreen() {
   }, []);
   
   // Setup a status listener for an individual author
-  const setupStatusListener = (authorId: string, tweetsList: Tweet[]) => {
+  const setupStatusListener = (authorId: string, shweetsList: Shweet[]) => {
     // Skip if we already have a listener for this author
     if (statusListeners[authorId]) return;
     
@@ -98,12 +98,12 @@ export default function TweetsScreen() {
     const unsubscribe = onValue(statusRef, (snapshot) => {
       const status = snapshot.val() || {};
       
-      // Update tweets for this author with new status
-      setTweets(currentTweets => 
-        currentTweets.map(tweet => 
-          tweet.authorId === authorId 
-            ? { ...tweet, isShitting: status.isShitting || false } 
-            : tweet
+      // Update shweets for this author with new status
+      setShweets(currentShweets => 
+        currentShweets.map(shweet => 
+          shweet.authorId === authorId 
+            ? { ...shweet, isShitting: status.isShitting || false } 
+            : shweet
         )
       );
     });
@@ -117,33 +117,33 @@ export default function TweetsScreen() {
     Keyboard.dismiss();
   };
   
-  // Post a new tweet
-  const handlePostTweet = useCallback(async () => {
-    if (!userData?.uid || !newTweet.trim()) return;
+  // Post a new shweet
+  const handlePostShweet = useCallback(async () => {
+    if (!userData?.uid || !newShweet.trim()) return;
     
     setSubmitting(true);
     Keyboard.dismiss();
     
     try {
-      console.log("Posting tweet:", newTweet.trim());
+      console.log("Posting shweet:", newShweet.trim());
       
       await addDoc(collection(firestore, 'tweets'), {
         authorId: userData.uid,
-        content: newTweet.trim(),
+        content: newShweet.trim(),
         timestamp: serverTimestamp(),
         likes: 0,
         likedBy: [],
       });
       
       // Clear input
-      setNewTweet('');
-      console.log("Tweet posted successfully");
+      setNewShweet('');
+      console.log("Shweet posted successfully");
     } catch (error) {
-      console.error('Error posting tweet:', error);
+      console.error('Error posting shweet:', error);
     } finally {
       setSubmitting(false);
     }
-  }, [userData, newTweet]);
+  }, [userData, newShweet]);
   
   // Format timestamp
   const formatTimestamp = (timestamp: any) => {
@@ -164,29 +164,29 @@ export default function TweetsScreen() {
     }
   };
   
-  // Add function to delete a tweet
-  const handleDeleteTweet = useCallback(async (tweetId: string) => {
+  // Add function to delete a shweet
+  const handleDeleteShweet = useCallback(async (shweetId: string) => {
     if (!userData?.uid) return;
     
-    // Find the tweet to confirm it belongs to the current user
-    const tweetToDelete = tweets.find(tweet => tweet.id === tweetId);
+    // Find the shweet to confirm it belongs to the current user
+    const shweetToDelete = shweets.find(shweet => shweet.id === shweetId);
     
-    if (!tweetToDelete) {
-      console.error('Tweet not found');
+    if (!shweetToDelete) {
+      console.error('Shweet not found');
       return;
     }
     
-    // Verify the tweet belongs to the current user
-    if (tweetToDelete.authorId !== userData.uid) {
-      console.error('Cannot delete someone else\'s tweet');
-      Alert.alert('Error', 'You can only delete your own tweets');
+    // Verify the shweet belongs to the current user
+    if (shweetToDelete.authorId !== userData.uid) {
+      console.error('Cannot delete someone else\'s shweet');
+      Alert.alert('Error', 'You can only delete your own shweets');
       return;
     }
     
     // Confirm deletion with user
     Alert.alert(
-      'Delete Tweet',
-      'Are you sure you want to delete this tweet?',
+      'Delete Shweet',
+      'Are you sure you want to delete this shweet?',
       [
         {
           text: 'Cancel',
@@ -197,33 +197,33 @@ export default function TweetsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              setDeletingTweetId(tweetId);
+              setDeletingShweetId(shweetId);
               
-              // Delete the tweet document from Firestore
-              await deleteDoc(doc(firestore, 'tweets', tweetId));
-              console.log('Tweet deleted successfully');
+              // Delete the shweet document from Firestore
+              await deleteDoc(doc(firestore, 'tweets', shweetId));
+              console.log('Shweet deleted successfully');
               
-              // Update local state to remove the deleted tweet
-              setTweets(currentTweets => 
-                currentTweets.filter(tweet => tweet.id !== tweetId)
+              // Update local state to remove the deleted shweet
+              setShweets(currentShweets => 
+                currentShweets.filter(shweet => shweet.id !== shweetId)
               );
             } catch (error) {
-              console.error('Error deleting tweet:', error);
-              Alert.alert('Error', 'Failed to delete tweet. Please try again.');
+              console.error('Error deleting shweet:', error);
+              Alert.alert('Error', 'Failed to delete shweet. Please try again.');
             } finally {
-              setDeletingTweetId(null);
+              setDeletingShweetId(null);
             }
           },
         },
       ],
       { cancelable: true }
     );
-  }, [tweets, userData]);
+  }, [shweets, userData]);
   
-  // Render a tweet
-  const renderTweetItem = ({ item }: { item: Tweet }) => (
-    <View style={styles.tweetCard}>
-      <View style={styles.tweetHeader}>
+  // Render a shweet
+  const renderShweetItem = ({ item }: { item: Shweet }) => (
+    <View style={styles.shweetCard}>
+      <View style={styles.shweetHeader}>
         <View style={styles.authorInfo}>
           {item.authorPhotoURL ? (
             <Image source={{ uri: item.authorPhotoURL }} style={styles.authorAvatar} />
@@ -246,14 +246,14 @@ export default function TweetsScreen() {
           </View>
         </View>
         
-        {/* Delete button - only shown for user's own tweets */}
+        {/* Delete button - only shown for user's own shweets */}
         {userData?.uid === item.authorId && (
           <TouchableOpacity 
             style={styles.deleteButton}
-            onPress={() => handleDeleteTweet(item.id)}
-            disabled={deletingTweetId === item.id}
+            onPress={() => handleDeleteShweet(item.id)}
+            disabled={deletingShweetId === item.id}
           >
-            {deletingTweetId === item.id ? (
+            {deletingShweetId === item.id ? (
               <ActivityIndicator size="small" color="#f87171" />
             ) : (
               <Ionicons name="trash-outline" size={18} color="#f87171" />
@@ -262,7 +262,7 @@ export default function TweetsScreen() {
         )}
       </View>
       
-      <Text style={styles.tweetContent}>{item.content}</Text>
+      <Text style={styles.shweetContent}>{item.content}</Text>
     </View>
   );
   
@@ -276,18 +276,18 @@ export default function TweetsScreen() {
               style={styles.input}
               placeholder="What's happening on the toilet?"
               multiline
-              value={newTweet}
-              onChangeText={setNewTweet}
+              value={newShweet}
+              onChangeText={setNewShweet}
             />
           </View>
           
           <TouchableOpacity 
             style={[
               styles.postButton,
-              (!newTweet.trim() || submitting) && styles.disabledButton
+              (!newShweet.trim() || submitting) && styles.disabledButton
             ]}
-            onPress={handlePostTweet}
-            disabled={!newTweet.trim() || submitting}
+            onPress={handlePostShweet}
+            disabled={!newShweet.trim() || submitting}
           >
             <Text style={styles.postButtonText}>
               {submitting ? 'Posting...' : 'Post'}
@@ -298,19 +298,19 @@ export default function TweetsScreen() {
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#6366f1" />
-            <Text style={styles.loadingText}>Loading tweets...</Text>
+            <Text style={styles.loadingText}>Loading shweets...</Text>
           </View>
-        ) : tweets.length > 0 ? (
+        ) : shweets.length > 0 ? (
           <FlatList
-            data={tweets}
-            renderItem={renderTweetItem}
+            data={shweets}
+            renderItem={renderShweetItem}
             keyExtractor={item => item.id}
-            contentContainerStyle={styles.tweetsList}
+            contentContainerStyle={styles.shweetsList}
           />
         ) : (
           <View style={styles.emptyContainer}>
             <Ionicons name="chatbubble-ellipses" size={60} color="#d1d5db" />
-            <Text style={styles.emptyText}>No tweets yet</Text>
+            <Text style={styles.emptyText}>No shweets yet</Text>
             <Text style={styles.emptySubtext}>Be the first to share your thoughts!</Text>
           </View>
         )}
@@ -366,10 +366,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6b7280',
   },
-  tweetsList: {
+  shweetsList: {
     padding: 15,
   },
-  tweetCard: {
+  shweetCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 15,
@@ -380,7 +380,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  tweetHeader: {
+  shweetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
@@ -437,7 +437,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
   },
-  tweetContent: {
+  shweetContent: {
     fontSize: 16,
     lineHeight: 22,
     marginBottom: 15,

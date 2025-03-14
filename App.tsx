@@ -14,7 +14,7 @@ import RegisterScreen from './src/screens/RegisterScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import FriendsScreen from './src/screens/FriendsScreen';
-import TweetsScreen from './src/screens/TweetsScreen';
+import ShweetsScreen from './src/screens/ShweetsScreen';
 import GamesScreen from './src/screens/GamesScreen';
 
 // Define the types for our navigation
@@ -26,7 +26,7 @@ type AuthStackParamList = {
 type MainTabParamList = {
   Home: undefined;
   Friends: undefined;
-  Tweets: undefined;
+  Shweets: undefined;
   Games: undefined;
   Profile: undefined;
 };
@@ -69,7 +69,7 @@ function MainNavigator() {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'Friends') {
             iconName = focused ? 'people' : 'people-outline';
-          } else if (route.name === 'Tweets') {
+          } else if (route.name === 'Shweets') {
             iconName = focused ? 'chatbubble' : 'chatbubble-outline';
           } else if (route.name === 'Games') {
             iconName = focused ? 'game-controller' : 'game-controller-outline';
@@ -85,7 +85,7 @@ function MainNavigator() {
     >
       <MainTab.Screen name="Home" component={HomeScreen} />
       <MainTab.Screen name="Friends" component={FriendsScreen} />
-      <MainTab.Screen name="Tweets" component={TweetsScreen} />
+      <MainTab.Screen name="Shweets" component={ShweetsScreen} />
       <MainTab.Screen name="Games" component={GamesScreen} />
       <MainTab.Screen name="Profile" component={ProfileScreen} />
     </MainTab.Navigator>
