@@ -335,6 +335,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         displayName,
         photoURL,
       });
+      
+      // Update local userData state to reflect the changes
+      setUserData(prevUserData => {
+        if (prevUserData) {
+          return {
+            ...prevUserData,
+            displayName,
+            photoURL,
+          };
+        }
+        return prevUserData;
+      });
     } catch (error) {
       console.error('Error updating profile:', error);
       throw error;
