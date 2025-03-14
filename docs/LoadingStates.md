@@ -227,14 +227,4 @@ const cancelLoading = () => {
 5. For API requests, use the `useAPI` hook which combines loading and error handling
 6. Always include a descriptive loading message to improve user experience
 7. Store loading IDs when you need to cancel a specific loading state
-8. For component-specific loading states, use local state instead of the global loading context
-
-## Example Screen
-
-Check out the `LoadingExampleScreen.tsx` for practical examples of how to use the loading functionality in different scenarios, including:
-
-- Basic loading with custom messages
-- Managing multiple loading states
-- Wrapping promises with loading states
-- Handling API requests with loading and error handling
-- Canceling loading states 
+8. For component-specific loading states, use local state instead of the global loading context 
