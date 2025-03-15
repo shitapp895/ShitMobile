@@ -466,7 +466,10 @@ export default function FriendsScreen() {
             style={[styles.requestButton, styles.cancelButton]}
             onPress={() => handleCancelRequest(item.id!)}
           >
-            <Text style={styles.requestButtonText}>Cancel</Text>
+            <View style={styles.buttonContent}>
+              <Ionicons name="close-circle" size={16} color="#fff" style={styles.buttonIcon} />
+              <Text style={styles.requestButtonText}>Cancel</Text>
+            </View>
           </TouchableOpacity>
         )}
       </View>
@@ -520,7 +523,10 @@ export default function FriendsScreen() {
           style={[styles.requestButton, styles.sendButton]}
           onPress={() => handleSendFriendRequest(item.uid)}
         >
-          <Text style={styles.requestButtonText}>Send Request</Text>
+          <View style={styles.buttonContent}>
+            <Ionicons name="person-add" size={16} color="#fff" style={styles.buttonIcon} />
+            <Text style={styles.requestButtonText}>Add</Text>
+          </View>
         </TouchableOpacity>
       )}
       
@@ -537,7 +543,10 @@ export default function FriendsScreen() {
             }
           }}
         >
-          <Text style={styles.requestButtonText}>Cancel</Text>
+          <View style={styles.buttonContent}>
+            <Ionicons name="close-circle" size={16} color="#fff" style={styles.buttonIcon} />
+            <Text style={styles.requestButtonText}>Cancel</Text>
+          </View>
         </TouchableOpacity>
       )}
       
@@ -1125,7 +1134,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
   },
   cancelButton: {
-    backgroundColor: '#6b7280',
+    backgroundColor: '#9CA3AF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
   },
   requestButtonText: {
     color: '#fff',
@@ -1153,5 +1167,12 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
     paddingHorizontal: 15,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  buttonIcon: {
+    marginRight: 4,
   },
 }); 
