@@ -78,47 +78,41 @@ export const acceptFriendRequest = async (requestId: string): Promise<void> => {
   try {
     const requestRef = doc(firestore, 'friendRequests', requestId);
     const requestDoc = await getDoc(requestRef);
-    
+
     if (!requestDoc.exists()) {
-      throw new Error('Friend request not found');
+      // Instead of throwing an error, return a special status
+      return Promise.reject({ status: 'cancelled' });
     }
-    
-    const request = requestDoc.data() as FriendRequest;
-    
-    // Update both users' friends lists and request status in a single batch
+
+    const requestData = requestDoc.data() as FriendRequest;
+    const { senderId, receiverId } = requestData;
+
+    // Add each user to the other's friends list
     const batch = writeBatch(firestore);
     
-    // Add to receiver's friends list
-    const receiverRef = doc(firestore, 'users', request.receiverId);
-    batch.update(receiverRef, {
-      friends: arrayUnion(request.senderId)
-    });
-    
-    // Add to sender's friends list
-    const senderRef = doc(firestore, 'users', request.senderId);
+    // Add receiver to sender's friends
+    const senderRef = doc(firestore, 'users', senderId);
     batch.update(senderRef, {
-      friends: arrayUnion(request.receiverId)
+      friends: arrayUnion(receiverId)
     });
     
-    // Delete the friend request document
+    // Add sender to receiver's friends
+    const receiverRef = doc(firestore, 'users', receiverId);
+    batch.update(receiverRef, {
+      friends: arrayUnion(senderId)
+    });
+    
+    // Delete the friend request
     batch.delete(requestRef);
     
-    // Commit all updates in a single batch
     await batch.commit();
-    
-    // Only update the status of the user who is accepting the request
-    const currentTime = Date.now();
-    const statusUpdate = {
-      state: 'online',
-      lastChanged: currentTime,
-    };
-    
-    // Update only the receiver's status (the user accepting the request)
-    await update(ref(database, `status/${request.receiverId}`), statusUpdate);
-    
-  } catch (error) {
+  } catch (error: any) {
+    // If the error is already our special status, rethrow it
+    if (error.status === 'cancelled') {
+      throw error;
+    }
     console.error('Error accepting friend request:', error);
-    throw error;
+    throw new Error('Failed to accept friend request');
   }
 };
 
@@ -141,9 +135,29 @@ export const declineFriendRequest = async (requestId: string): Promise<void> => 
 };
 
 // Cancel a sent friend request
-export const cancelFriendRequest = async (requestId: string): Promise<void> => {
+export const cancelFriendRequest = async (requestId: string, currentUserId: string): Promise<void> => {
   try {
-    await deleteDoc(doc(firestore, 'friendRequests', requestId));
+    const requestRef = doc(firestore, 'friendRequests', requestId);
+    const requestDoc = await getDoc(requestRef);
+    
+    if (!requestDoc.exists()) {
+      throw new Error('Friend request not found');
+    }
+    
+    const request = requestDoc.data() as FriendRequest;
+    
+    // Verify that the current user is the sender of the request
+    if (request.senderId !== currentUserId) {
+      throw new Error('You can only cancel friend requests that you sent');
+    }
+    
+    // Verify that the request is still pending
+    if (request.status !== 'pending') {
+      throw new Error('Friend request is no longer pending');
+    }
+    
+    // Delete the friend request document
+    await deleteDoc(requestRef);
   } catch (error) {
     console.error('Error canceling friend request:', error);
     throw error;

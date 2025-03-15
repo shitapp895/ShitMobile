@@ -298,9 +298,26 @@ export default function FriendsScreen() {
       fetchFriends();
       
       Alert.alert('Success', 'Friend request accepted!');
-    } catch (error) {
-      console.error('Error accepting friend request:', error);
-      Alert.alert('Error', 'Failed to accept friend request. Please try again.');
+    } catch (error: any) {
+      // Check if the error is because the request was cancelled
+      if (error.status === 'cancelled') {
+        Alert.alert(
+          'Request Cancelled',
+          'This friend request has been cancelled by the sender.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Refresh the requests to remove the cancelled request from the UI
+                fetchFriendRequests();
+              }
+            }
+          ]
+        );
+      } else {
+        console.error('Error accepting friend request:', error);
+        Alert.alert('Error', 'Failed to accept friend request. Please try again.');
+      }
     }
   };
 
@@ -321,8 +338,10 @@ export default function FriendsScreen() {
 
   // Function to handle canceling a sent friend request
   const handleCancelRequest = async (requestId: string) => {
+    if (!userData?.uid) return;
+    
     try {
-      await cancelFriendRequest(requestId);
+      await cancelFriendRequest(requestId, userData.uid);
       
       // Refresh data
       fetchFriendRequests();
