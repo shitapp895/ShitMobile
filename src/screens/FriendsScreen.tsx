@@ -34,6 +34,13 @@ interface UserSearchResult {
   isFriend: boolean;
 }
 
+interface RequestSection {
+  title: string;
+  data: FriendRequest[];
+  icon: 'arrow-down-circle-outline' | 'arrow-up-circle-outline';
+  emptyText: string;
+}
+
 export default function FriendsScreen() {
   const { userData } = useAuth();
   const [friends, setFriends] = useState<FriendData[]>([]);
@@ -615,31 +622,41 @@ export default function FriendsScreen() {
     // });
   }, []);
 
+  // Prepare sections data for requests tab
+  const getRequestSections = (): RequestSection[] => {
+    return [
+      {
+        title: 'Received Requests',
+        data: receivedRequests,
+        icon: 'arrow-down-circle-outline',
+        emptyText: 'No received requests'
+      },
+      {
+        title: 'Sent Requests',
+        data: sentRequests,
+        icon: 'arrow-up-circle-outline',
+        emptyText: 'No sent requests'
+      }
+    ];
+  };
+
   // Render section header for requests
-  const renderSectionHeader = ({ section }: { section: { title: string } }) => (
-    <Text style={styles.sectionTitle}>{section.title}</Text>
+  const renderSectionHeader = ({ section }: { section: RequestSection }) => (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionTitleContainer}>
+        <Ionicons name={section.icon} size={20} color="#374151" style={styles.sectionIcon} />
+        <Text style={styles.sectionTitle}>{section.title}</Text>
+      </View>
+      <Text style={styles.sectionCount}>{section.data.length}</Text>
+    </View>
   );
 
-  // Prepare sections data for requests tab
-  const getRequestSections = () => {
-    const sections = [];
-    
-    if (receivedRequests.length > 0) {
-      sections.push({
-        title: 'Received Requests',
-        data: receivedRequests
-      });
-    }
-    
-    if (sentRequests.length > 0) {
-      sections.push({
-        title: 'Sent Requests',
-        data: sentRequests
-      });
-    }
-    
-    return sections;
-  };
+  // Render empty component for sections
+  const renderSectionEmpty = ({ section }: { section: RequestSection }) => (
+    <View style={styles.sectionEmptyContainer}>
+      <Text style={styles.sectionEmptyText}>{section.emptyText}</Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -704,8 +721,11 @@ export default function FriendsScreen() {
             sections={getRequestSections()}
             renderItem={renderRequestItem}
             renderSectionHeader={renderSectionHeader}
+            renderSectionFooter={({ section }) => section.data.length === 0 ? renderSectionEmpty({ section }) : null}
             keyExtractor={(item) => item.id!}
             style={styles.list}
+            contentContainerStyle={styles.requestsContent}
+            stickySectionHeadersEnabled={false}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -715,12 +735,7 @@ export default function FriendsScreen() {
                 progressViewOffset={Platform.OS === 'ios' ? 0 : 20}
               />
             }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Ionicons name="mail" size={60} color="#d1d5db" />
-                <Text style={styles.emptyText}>No friend requests</Text>
-              </View>
-            }
+            ListEmptyComponent={null}
           />
         )
       ) : (
@@ -1091,14 +1106,55 @@ const styles = StyleSheet.create({
   requestsSection: {
     marginBottom: 20,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    backgroundColor: '#f9fafb',
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionIcon: {
+    marginRight: 8,
+  },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#374151',
-    marginBottom: 10,
   },
-  requestsList: {
-    paddingBottom: 10,
+  sectionCount: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6b7280',
+    backgroundColor: '#e5e7eb',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  sectionEmptyContainer: {
+    padding: 20,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  sectionEmptyText: {
+    fontSize: 14,
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  requestsContent: {
+    paddingHorizontal: 15,
+    paddingTop: 8,
   },
   requestItem: {
     flexDirection: 'row',
@@ -1133,14 +1189,6 @@ const styles = StyleSheet.create({
   declineButton: {
     backgroundColor: '#ef4444',
   },
-  cancelButton: {
-    backgroundColor: '#9CA3AF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
-  },
   requestButtonText: {
     color: '#fff',
     fontWeight: '500',
@@ -1174,5 +1222,13 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     marginRight: 4,
+  },
+  cancelButton: {
+    backgroundColor: '#9CA3AF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
   },
 }); 
