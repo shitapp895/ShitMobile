@@ -14,7 +14,8 @@ import {
   addDoc,
   deleteDoc,
   orderBy,
-  Timestamp
+  Timestamp,
+  setDoc
 } from 'firebase/firestore';
 import { ref, update } from 'firebase/database';
 import { firestore, database } from '../../firebase/config';
@@ -44,29 +45,26 @@ const convertFriendRequestDoc = (doc: QueryDocumentSnapshot<DocumentData>): Frie
 };
 
 // Send a friend request
-export const sendFriendRequest = async (senderId: string, receiverId: string): Promise<void> => {
+export const sendFriendRequest = async (senderId: string, receiverId: string): Promise<string> => {
   try {
     // Check if a request already exists
-    const existingRequestQuery = query(
-      friendRequestsCollection,
-      where('senderId', 'in', [senderId, receiverId]),
-      where('receiverId', 'in', [senderId, receiverId]),
-      where('status', '==', 'pending')
-    );
-    
-    const existingRequests = await getDocs(existingRequestQuery);
-    
-    if (!existingRequests.empty) {
+    const existingRequest = await checkPendingRequest(senderId, receiverId);
+    if (existingRequest) {
       throw new Error('A friend request already exists between these users');
     }
     
-    // Create new friend request
-    await addDoc(friendRequestsCollection, {
+    // Create a new friend request document
+    const requestRef = doc(collection(firestore, 'friendRequests'));
+    const request: FriendRequest = {
+      id: requestRef.id,
       senderId,
       receiverId,
       status: 'pending',
-      timestamp: Timestamp.now(),
-    });
+      timestamp: Timestamp.now()
+    };
+    
+    await setDoc(requestRef, request);
+    return requestRef.id;
   } catch (error) {
     console.error('Error sending friend request:', error);
     throw error;
@@ -198,39 +196,29 @@ export const getSentFriendRequests = async (userId: string): Promise<FriendReque
   }
 };
 
-// Check if there's a pending request between two users
+// Check if a pending request exists between two users
 export const checkPendingRequest = async (userId1: string, userId2: string): Promise<FriendRequest | null> => {
   try {
-    // Instead of using 'in' operator, we'll check both possible combinations
-    // This is more efficient as it uses exact matches
-    const q1 = query(
-      friendRequestsCollection,
-      where('senderId', '==', userId1),
-      where('receiverId', '==', userId2),
+    // Check both directions (user1 -> user2 and user2 -> user1)
+    const q = query(
+      collection(firestore, 'friendRequests'),
+      where('senderId', 'in', [userId1, userId2]),
+      where('receiverId', 'in', [userId1, userId2]),
       where('status', '==', 'pending')
     );
     
-    const q2 = query(
-      friendRequestsCollection,
-      where('senderId', '==', userId2),
-      where('receiverId', '==', userId1),
-      where('status', '==', 'pending')
-    );
+    const querySnapshot = await getDocs(q);
     
-    const [snapshot1, snapshot2] = await Promise.all([
-      getDocs(q1),
-      getDocs(q2)
-    ]);
-    
-    if (!snapshot1.empty) {
-      return convertFriendRequestDoc(snapshot1.docs[0]);
+    if (querySnapshot.empty) {
+      return null;
     }
     
-    if (!snapshot2.empty) {
-      return convertFriendRequestDoc(snapshot2.docs[0]);
-    }
-    
-    return null;
+    // Get the first matching request
+    const doc = querySnapshot.docs[0];
+    return {
+      id: doc.id, // Make sure we include the document ID
+      ...doc.data()
+    } as FriendRequest;
   } catch (error) {
     console.error('Error checking pending request:', error);
     throw error;

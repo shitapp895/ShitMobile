@@ -237,11 +237,14 @@ export default function FriendsScreen() {
         filteredUsers.map(async (user) => {
           const isFriend = Boolean(userData.friends?.includes(user.uid));
           const pendingRequest = await checkPendingRequest(userData.uid, user.uid);
+          
+          console.log('Pending request for user:', user.displayName, pendingRequest);
+          
           const requestStatus: 'none' | 'sent' | 'received' = pendingRequest ? 
             (pendingRequest.senderId === userData.uid ? 'sent' : 'received') : 
             'none';
           
-          return {
+          const result = {
             uid: user.uid,
             displayName: user.displayName || 'Unknown',
             photoURL: user.photoURL,
@@ -249,9 +252,13 @@ export default function FriendsScreen() {
             requestStatus,
             requestId: pendingRequest?.id
           };
+          
+          console.log('User search result:', result);
+          return result;
         })
       );
       
+      console.log('Setting search results:', usersWithStatus);
       setSearchResults(usersWithStatus);
       
       if (usersWithStatus.length === 0) {
@@ -270,16 +277,31 @@ export default function FriendsScreen() {
     if (!userData?.uid) return;
     
     try {
-      await sendFriendRequest(userData.uid, receiverId);
+      console.log('Sending friend request to:', receiverId);
+      const requestId = await sendFriendRequest(userData.uid, receiverId);
+      console.log('Friend request sent with ID:', requestId);
       
-      // Update UI
-      setSearchResults(prevResults => 
-        prevResults.map(user => 
-          user.uid === receiverId 
-            ? { ...user, requestStatus: 'sent' }
-            : user
-        )
-      );
+      // Update UI with the new request ID
+      setSearchResults(prevResults => {
+        console.log('Current search results:', prevResults);
+        const updatedResults = prevResults.map(user => {
+          if (user.uid === receiverId) {
+            const updatedUser = {
+              ...user,
+              requestStatus: 'sent' as const,
+              requestId // Make sure we're using the requestId from sendFriendRequest
+            };
+            console.log('Updating user with request ID:', updatedUser);
+            return updatedUser;
+          }
+          return user;
+        });
+        console.log('Updated search results:', updatedResults);
+        return updatedResults;
+      });
+
+      // Also fetch friend requests to ensure our sent requests list is up to date
+      await fetchFriendRequests();
       
       Alert.alert('Success', 'Friend request sent!');
     } catch (error) {
@@ -340,6 +362,9 @@ export default function FriendsScreen() {
   const handleCancelRequest = async (requestId: string) => {
     if (!userData?.uid) return;
     
+    console.log('Attempting to cancel request:', requestId);
+    console.log('Current user:', userData.uid);
+    
     try {
       await cancelFriendRequest(requestId, userData.uid);
       
@@ -347,13 +372,16 @@ export default function FriendsScreen() {
       fetchFriendRequests();
       
       // Update search results
-      setSearchResults(prevResults => 
-        prevResults.map(user => 
-          user.requestId === requestId 
-            ? { ...user, requestStatus: 'none', requestId: undefined }
-            : user
-        )
-      );
+      setSearchResults(prevResults => {
+        console.log('Updating search results after cancel. Current results:', prevResults);
+        return prevResults.map(user => {
+          if (user.requestId === requestId) {
+            console.log('Found matching user to update:', user);
+            return { ...user, requestStatus: 'none', requestId: undefined };
+          }
+          return user;
+        });
+      });
       
       Alert.alert('Success', 'Friend request canceled');
     } catch (error) {
@@ -446,7 +474,9 @@ export default function FriendsScreen() {
   };
 
   // Render a search result item
-  const renderSearchResultItem = ({ item }: { item: UserSearchResult }) => (
+  const renderSearchResultItem = ({ item }: { item: UserSearchResult }) => {
+    console.log('Rendering search result item:', item);
+    return (
     <View style={styles.searchResultItem}>
       <View style={styles.friendAvatar}>
         {item.photoURL ? (
@@ -497,7 +527,15 @@ export default function FriendsScreen() {
       {item.requestStatus === 'sent' && (
         <TouchableOpacity 
           style={[styles.requestButton, styles.cancelButton]}
-          onPress={() => item.requestId && handleCancelRequest(item.requestId)}
+          onPress={() => {
+            console.log('Cancel button pressed for:', item);
+            if (item.requestId) {
+              handleCancelRequest(item.requestId);
+            } else {
+              console.error('No requestId found for item:', item);
+              Alert.alert('Error', 'Could not cancel request - missing request ID');
+            }
+          }}
         >
           <Text style={styles.requestButtonText}>Cancel</Text>
         </TouchableOpacity>
@@ -520,7 +558,7 @@ export default function FriendsScreen() {
         </View>
       )}
     </View>
-  );
+  )};
 
   // Function to handle refresh
   const handleRefresh = async () => {
