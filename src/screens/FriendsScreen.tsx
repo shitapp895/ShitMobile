@@ -61,6 +61,9 @@ export default function FriendsScreen() {
   const [searching, setSearching] = useState(false);
   const [addingFriend, setAddingFriend] = useState<string | null>(null);
 
+  // Add this state for caching user data
+  const [requestUserData, setRequestUserData] = useState<{[key: string]: { displayName: string, photoURL: string | null }}>({});
+
   // Fetch friend requests
   const fetchFriendRequests = async () => {
     if (!userData?.uid) return;
@@ -433,21 +436,59 @@ export default function FriendsScreen() {
     }
   };
 
+  // Add this function to fetch user data
+  const fetchRequestUserData = async (userId: string) => {
+    try {
+      const userRef = doc(firestore, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setRequestUserData(prev => ({
+          ...prev,
+          [userId]: {
+            displayName: data.displayName || 'Unknown',
+            photoURL: data.photoURL || null
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
+
   // Render a friend request item
   const renderRequestItem = ({ item }: { item: FriendRequest }) => {
     const isReceived = item.receiverId === userData?.uid;
     const otherUserId = isReceived ? item.senderId : item.receiverId;
     
+    // Fetch user data if not already cached
+    useEffect(() => {
+      if (otherUserId && !requestUserData[otherUserId]) {
+        fetchRequestUserData(otherUserId);
+      }
+    }, [otherUserId]);
+
+    const otherUser = requestUserData[otherUserId];
+    
     return (
       <View style={styles.requestItem}>
         <View style={styles.friendAvatar}>
-          <View style={styles.defaultAvatar}>
-            <Text style={styles.avatarText}>?</Text>
-          </View>
+          {otherUser?.photoURL ? (
+            <Image source={{ uri: otherUser.photoURL }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.defaultAvatar}>
+              <Text style={styles.avatarText}>
+                {otherUser?.displayName?.charAt(0) || '?'}
+              </Text>
+            </View>
+          )}
         </View>
         
         <View style={styles.friendInfo}>
-          <Text style={styles.friendName}>Loading...</Text>
+          <Text style={styles.friendName}>
+            {otherUser?.displayName || 'Loading...'}
+          </Text>
           <Text style={styles.requestStatus}>
             {isReceived ? 'Sent you a friend request' : 'Friend request sent'}
           </Text>
