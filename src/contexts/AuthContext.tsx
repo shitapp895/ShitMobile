@@ -67,11 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Set online status in Realtime Database
         const userStatusRef = ref(database, `status/${user.uid}`);
         const isOfflineForDatabase = {
-          state: 'offline',
+          isOnline: false,
           lastChanged: Date.now(),
         };
         const isOnlineForDatabase = {
-          state: 'online',
+          isOnline: true,
           lastChanged: Date.now(),
         };
 

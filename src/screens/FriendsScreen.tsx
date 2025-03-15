@@ -64,6 +64,15 @@ export default function FriendsScreen() {
   // Add this state for caching user data
   const [requestUserData, setRequestUserData] = useState<{[key: string]: { displayName: string, photoURL: string | null }}>({});
 
+  // Add ref to store cleanup functions
+  const statusListeners = React.useRef<(() => void)[]>([]);
+
+  // Cleanup function for status listeners
+  const cleanupStatusListeners = () => {
+    statusListeners.current.forEach(cleanup => cleanup());
+    statusListeners.current = [];
+  };
+
   // Fetch friend requests
   const fetchFriendRequests = async () => {
     if (!userData?.uid) return;
@@ -102,6 +111,9 @@ export default function FriendsScreen() {
     setLoading(true);
     
     try {
+      // Clean up existing listeners before setting up new ones
+      cleanupStatusListeners();
+      
       // Get current user's friends list
       const userDocRef = doc(firestore, 'users', userData.uid);
       const userDoc = await getDoc(userDocRef);
@@ -127,30 +139,39 @@ export default function FriendsScreen() {
             id: friendId,
             displayName: data.displayName || 'Unknown',
             photoURL: data.photoURL,
-            isOnline: data.isOnline || false,
+            isOnline: false, // Default to offline until we get real-time status
             isShitting: data.isShitting || false,
           };
         }
       }
       
-      // Set up listeners for online status from Realtime Database
-      const statusRefs = friendIds.map((friendId: string) => ref(database, `status/${friendId}`));
+      // Set initial friends state
+      setFriends(Object.values(friendsData));
       
-      statusRefs.forEach((statusRef: any, index: number) => {
-        const friendId = friendIds[index];
+      // Set up listeners for online status from Realtime Database
+      friendIds.forEach((friendId: string) => {
+        const statusRef = ref(database, `status/${friendId}`);
         
-        onValue(statusRef, (snapshot) => {
+        const unsubscribe = onValue(statusRef, (snapshot) => {
           const status = snapshot.val();
           
-          if (status && friendsData[friendId]) {
-            friendsData[friendId].isOnline = status.state === 'online';
-            setFriends(Object.values(friendsData));
-          }
+          setFriends(currentFriends => {
+            const updatedFriends = currentFriends.map(friend => {
+              if (friend.id === friendId) {
+                return {
+                  ...friend,
+                  isOnline: status?.isOnline === true
+                };
+              }
+              return friend;
+            });
+            return updatedFriends;
+          });
         });
+        
+        // Store cleanup function
+        statusListeners.current.push(unsubscribe);
       });
-      
-      // Initial set of friends
-      setFriends(Object.values(friendsData));
     } catch (error) {
       console.error('Error fetching friends:', error);
     } finally {
@@ -167,7 +188,14 @@ export default function FriendsScreen() {
       }
     }
   }, [userData?.uid]); // Remove activeTab from dependencies
-  
+
+  // Clean up listeners when component unmounts
+  useEffect(() => {
+    return () => {
+      cleanupStatusListeners();
+    };
+  }, []);
+
   // Filter friends based on search query and active tab
   const filteredFriends = friends.filter(friend => {
     const matchesSearch = friend.displayName.toLowerCase().includes(searchQuery.toLowerCase());
