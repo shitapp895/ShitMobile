@@ -1,28 +1,33 @@
 {
   "expo": {
-    "name": "ShitApp Mobile",
-    "slug": "shitapp-mobile",
+    "name": "ShitApp",
+    "slug": "shitapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./shitapp-logo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./shitapp-logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shitapp"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./shitapp-logo.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.shitapp"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./shitapp-logo.png"
     },
     "extra": {
       "FIREBASE_API_KEY": "AIzaSyAnisQHPXgtcLj0YBMRyjV6FZQmJEuVwUQ",

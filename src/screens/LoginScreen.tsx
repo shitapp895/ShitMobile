@@ -40,11 +40,13 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.logoContainer}>
-        <Image 
-          source={require('../../assets/icon.png')} 
-          style={styles.logo} 
-          resizeMode="contain"
-        />
+        <View style={styles.logoWrapper}>
+          <Image 
+            source={require('../../shitapp-logo.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </View>
         <Text style={styles.title}>ShitApp</Text>
         <Text style={styles.subtitle}>Connect during bathroom breaks</Text>
       </View>
@@ -93,35 +95,46 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     padding: 20,
+    justifyContent: 'flex-start',
   },
   logoContainer: {
     alignItems: 'center',
-    marginTop: 60,
-    marginBottom: 40,
+    marginBottom: 30,
+    marginTop: 80,
+  },
+  logoWrapper: {
+    width: 140,
+    height: 140,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    marginBottom: 10,
   },
   logo: {
-    width: 100,
-    height: 100,
-    marginBottom: 10,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'transparent',
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#6366f1',
-    marginBottom: 5,
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#666',
+    fontSize: 18,
+    color: '#6b7280',
+    textAlign: 'center',
   },
   formContainer: {
     width: '100%',
+    paddingTop: 10,
   },
   input: {
     backgroundColor: '#f3f4f6',
     borderRadius: 8,
     padding: 15,
-    marginBottom: 15,
+    marginBottom: 12,
     fontSize: 16,
   },
   button: {
@@ -129,7 +142,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 15,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   buttonText: {
     color: '#fff',
