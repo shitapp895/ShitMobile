@@ -207,7 +207,6 @@ export default function FriendsScreen() {
       </View>
       
       <TouchableOpacity 
-        style={styles.removeButton}
         onPress={() => {
           Alert.alert(
             'Remove Friend',
@@ -226,7 +225,7 @@ export default function FriendsScreen() {
           );
         }}
       >
-        <Ionicons name="person-remove" size={20} color="#ef4444" />
+        <Ionicons name="person-remove" size={24} color="#ef4444" />
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -1255,7 +1254,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   removeButton: {
-    backgroundColor: '#ef4444',
+    padding: 8,
   },
   list: {
     flex: 1,
