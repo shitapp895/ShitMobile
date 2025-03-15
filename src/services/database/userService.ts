@@ -64,20 +64,33 @@ export const updateUserData = async (
 // Function to search for users
 export const searchUsers = async (query: string): Promise<UserData[]> => {
   try {
+    console.log('Starting user search with query:', query);
     // This is a simple implementation. In a real app, you'd use a more
     // sophisticated search mechanism like Algolia or Elasticsearch
     
+    // Normalize the query
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    if (!normalizedQuery) {
+      console.log('Empty query after normalization, returning empty results');
+      return [];
+    }
+    
+    console.log('Fetching all users from Firestore');
     const usersRef = collection(firestore, 'users');
     const querySnapshot = await getDocs(usersRef);
     
     const users: UserData[] = [];
     
+    console.log(`Processing ${querySnapshot.size} users for search results`);
     querySnapshot.forEach((doc) => {
       const userData = doc.data() as UserData;
       
-      // Simple case-insensitive search on displayName
-      if (userData.displayName && 
-          userData.displayName.toLowerCase().includes(query.toLowerCase())) {
+      // Simple case-insensitive search on displayName or email
+      const displayName = userData.displayName?.toLowerCase() || '';
+      const email = userData.email?.toLowerCase() || '';
+      
+      if (displayName.includes(normalizedQuery) || email.includes(normalizedQuery)) {
         users.push({
           ...userData,
           uid: doc.id,
@@ -85,6 +98,7 @@ export const searchUsers = async (query: string): Promise<UserData[]> => {
       }
     });
     
+    console.log(`Found ${users.length} matching users`);
     return users;
   } catch (error) {
     console.error('Error searching users:', error);
