@@ -566,53 +566,57 @@ export default function FriendsScreen() {
         >
           <Text style={styles.requestButtonText}>Remove</Text>
         </TouchableOpacity>
-      ) : item.requestStatus === 'none' && (
-        <TouchableOpacity 
-          style={[styles.requestButton, styles.sendButton]}
-          onPress={() => handleSendFriendRequest(item.uid)}
-        >
-          <View style={styles.buttonContent}>
-            <Ionicons name="person-add" size={16} color="#fff" style={styles.buttonIcon} />
-            <Text style={styles.requestButtonText}>Add</Text>
-          </View>
-        </TouchableOpacity>
-      )}
-      
-      {item.requestStatus === 'sent' && (
-        <TouchableOpacity 
-          style={[styles.requestButton, styles.cancelButton]}
-          onPress={() => {
-            console.log('Cancel button pressed for:', item);
-            if (item.requestId) {
-              handleCancelRequest(item.requestId);
-            } else {
-              console.error('No requestId found for item:', item);
-              Alert.alert('Error', 'Could not cancel request - missing request ID');
-            }
-          }}
-        >
-          <View style={styles.buttonContent}>
-            <Ionicons name="close-circle" size={16} color="#fff" style={styles.buttonIcon} />
-            <Text style={styles.requestButtonText}>Cancel</Text>
-          </View>
-        </TouchableOpacity>
-      )}
-      
-      {item.requestStatus === 'received' && (
-        <View style={styles.requestActions}>
-          <TouchableOpacity 
-            style={[styles.requestButton, styles.acceptButton]}
-            onPress={() => item.requestId && handleAcceptRequest(item.requestId)}
-          >
-            <Text style={styles.requestButtonText}>Accept</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.requestButton, styles.declineButton]}
-            onPress={() => item.requestId && handleDeclineRequest(item.requestId)}
-          >
-            <Text style={styles.requestButtonText}>Decline</Text>
-          </TouchableOpacity>
-        </View>
+      ) : (
+        <>
+          {(!item.requestStatus || item.requestStatus === 'none') && (
+            <TouchableOpacity 
+              style={[styles.requestButton, styles.sendButton]}
+              onPress={() => handleSendFriendRequest(item.uid)}
+            >
+              <View style={styles.buttonContent}>
+                <Ionicons name="person-add" size={16} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.requestButtonText}>Add</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          
+          {item.requestStatus === 'sent' && (
+            <TouchableOpacity 
+              style={[styles.requestButton, styles.cancelButton]}
+              onPress={() => {
+                console.log('Cancel button pressed for:', item);
+                if (item.requestId) {
+                  handleCancelRequest(item.requestId);
+                } else {
+                  console.error('No requestId found for item:', item);
+                  Alert.alert('Error', 'Could not cancel request - missing request ID');
+                }
+              }}
+            >
+              <View style={styles.buttonContent}>
+                <Ionicons name="close-circle" size={16} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.requestButtonText}>Cancel</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          
+          {item.requestStatus === 'received' && (
+            <View style={styles.requestActions}>
+              <TouchableOpacity 
+                style={[styles.requestButton, styles.acceptButton]}
+                onPress={() => item.requestId && handleAcceptRequest(item.requestId)}
+              >
+                <Text style={styles.requestButtonText}>Accept</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.requestButton, styles.declineButton]}
+                onPress={() => item.requestId && handleDeclineRequest(item.requestId)}
+              >
+                <Text style={styles.requestButtonText}>Decline</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </>
       )}
     </View>
   )};
@@ -1251,7 +1255,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   removeButton: {
-    padding: 10,
+    backgroundColor: '#ef4444',
   },
   list: {
     flex: 1,
