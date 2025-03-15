@@ -274,7 +274,7 @@ export default function ShweetsScreen() {
             <TextInput
               ref={inputRef}
               style={styles.input}
-              placeholder="What's happening on the toilet?"
+              placeholder="Send your friends a Shart..."
               multiline
               value={newShweet}
               onChangeText={setNewShweet}
