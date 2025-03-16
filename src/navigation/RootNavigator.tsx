@@ -157,7 +157,7 @@ const RootNavigator: React.FC = () => {
               name="Game" 
               component={GameScreen}
               options={{ 
-                title: 'Game',
+                headerShown: false,
                 presentation: 'modal',
                 gestureEnabled: false
               }}

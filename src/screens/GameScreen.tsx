@@ -237,8 +237,15 @@ export default function GameScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
+      <SafeAreaView style={styles.header}>
+        <View style={styles.headerContent}>
+          <Text style={styles.gameTitle}>
+            {gameType === 'tictactoe' ? 'Tic Tac Toe' :
+             gameType === 'rps' ? 'Rock Paper Scissors' :
+             gameType === 'wordle' ? 'Toilet Wordle' :
+             'Hangman'}
+          </Text>
+          <Text style={styles.opponentName}>vs {opponentName}</Text>
           <TouchableOpacity 
             style={styles.quitButton}
             onPress={handleQuitGame}
@@ -246,19 +253,7 @@ export default function GameScreen() {
             <Text style={styles.quitButtonText}>Quit Game</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.title}>
-          {gameType === 'tictactoe' ? 'Tic Tac Toe' :
-           gameType === 'rps' ? 'Rock Paper Scissors' :
-           gameType === 'wordle' ? 'Toilet Wordle' :
-           'Hangman'}
-        </Text>
-        <Text style={styles.subtitle}>Playing against {opponentName}</Text>
-        {game.type !== 'rps' && (
-          <Text style={styles.turnIndicator}>
-            {game.currentTurn === userData?.uid ? "Your turn" : `${opponentName}'s turn`}
-          </Text>
-        )}
-      </View>
+      </SafeAreaView>
 
       {game.type === 'tictactoe' && (
         <TicTacToeGame
@@ -312,68 +307,42 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1e293b',
-    padding: 20,
   },
   header: {
-    alignItems: 'center',
-    marginBottom: 30,
+    backgroundColor: '#1e293b',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
   },
-  headerTop: {
-    width: '100%',
+  headerContent: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  gameTitle: {
+    color: '#ffffff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  opponentName: {
+    color: '#94a3b8',
+    fontSize: 16,
+    marginRight: 16,
   },
   quitButton: {
-    backgroundColor: '#334155',
+    backgroundColor: 'transparent',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: '#ef4444',
   },
   quitButtonText: {
     color: '#ef4444',
     fontSize: 14,
     fontWeight: '600',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#94a3b8',
-    marginBottom: 5,
-  },
-  turnIndicator: {
-    fontSize: 18,
-    color: '#6366f1',
-    fontWeight: '600',
-  },
-  board: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 10,
-    alignSelf: 'center',
-    width: 320,
-    height: 320,
-  },
-  cell: {
-    width: 100,
-    height: 100,
-    backgroundColor: '#334155',
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cellText: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    color: '#fff',
   },
   loadingText: {
     fontSize: 18,
@@ -411,6 +380,42 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+  board: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    width: 320,
+    height: 320,
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [
+      { translateX: -160 },
+      { translateY: -160 }
+    ],
+  },
+  cell: {
+    width: 98,
+    height: 98,
+    backgroundColor: '#334155',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  cellText: {
+    fontSize: 48,
+    color: '#fff',
   },
   rpsContainer: {
     flexDirection: 'row',

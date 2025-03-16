@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { WordleGame as WordleGameType } from '../services/database/gameService';
 import { useAuth } from '../hooks/useAuth';
 import { makeMove } from '../services/database/gameService';
+import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
   game: WordleGameType;
@@ -19,9 +20,11 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
   const { userData } = useAuth();
   const [currentGuess, setCurrentGuess] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [showingPlayerBoard, setShowingPlayerBoard] = useState(true);
 
   const playerGuesses = game.playerGuesses[userData?.uid || ''] || { guesses: [], results: [] };
   const opponentGuesses = game.playerGuesses[game.players.find(id => id !== userData?.uid) || ''] || { guesses: [], results: [] };
+  const opponentName = game.players.find(id => id !== userData?.uid);
 
   const handleKeyPress = async (key: string) => {
     if (game.status !== 'active' || !userData) return;
@@ -123,51 +126,70 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.playerInfo}>
-          <Text style={styles.playerName}>You</Text>
-          <View style={styles.guessCount}>
-            <Text style={styles.guessCountText}>{playerGuesses.guesses.length}/6</Text>
-          </View>
-        </View>
-        <View style={styles.gameStatus}>
+      <View style={styles.gameHeader}>
+        <View style={styles.titleSection}>
           <Text style={styles.gameTitle}>TOILET WORDLE</Text>
-          {error && <Text style={styles.error}>{error}</Text>}
+          <Text style={styles.opponentText}>Playing against {opponentName}</Text>
         </View>
-        <View style={styles.playerInfo}>
-          <Text style={styles.playerName}>Opponent</Text>
-          <View style={styles.guessCount}>
-            <Text style={styles.guessCountText}>{opponentGuesses.guesses.length}/6</Text>
+        
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity 
+            style={[
+              styles.toggleButton, 
+              showingPlayerBoard && styles.toggleButtonActive
+            ]}
+            onPress={() => setShowingPlayerBoard(true)}
+          >
+            <Text style={[
+              styles.toggleText,
+              showingPlayerBoard && styles.toggleTextActive
+            ]}>YOU ({playerGuesses.guesses.length}/6)</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.toggleButton,
+              !showingPlayerBoard && styles.toggleButtonActive
+            ]}
+            onPress={() => setShowingPlayerBoard(false)}
+          >
+            <Text style={[
+              styles.toggleText,
+              !showingPlayerBoard && styles.toggleTextActive
+            ]}>THEM ({opponentGuesses.guesses.length}/6)</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.boardContainer}>
+        {showingPlayerBoard ? (
+          <View style={styles.gameBoard}>
+            {playerGuesses.guesses.map((guess, i) => 
+              renderGuessRow(guess, playerGuesses.results[i], false, i)
+            )}
+            {playerGuesses.guesses.length < game.maxGuesses && 
+              renderCurrentGuess(playerGuesses.guesses.length)
+            }
+            {Array(game.maxGuesses - playerGuesses.guesses.length - 1)
+              .fill(null)
+              .map((_, i) => renderEmptyRow(playerGuesses.guesses.length + i + 1))}
           </View>
-        </View>
+        ) : (
+          <View style={styles.gameBoard}>
+            {opponentGuesses.guesses.map((guess, i) => 
+              renderGuessRow(guess, opponentGuesses.results[i], true, i + game.maxGuesses)
+            )}
+            {Array(game.maxGuesses - opponentGuesses.guesses.length)
+              .fill(null)
+              .map((_, i) => renderEmptyRow(i + game.maxGuesses + opponentGuesses.guesses.length))}
+          </View>
+        )}
       </View>
 
-      <View style={styles.boardsContainer}>
-        <View style={styles.gameBoard}>
-          {playerGuesses.guesses.map((guess, i) => 
-            renderGuessRow(guess, playerGuesses.results[i], false, i)
-          )}
-          {playerGuesses.guesses.length < game.maxGuesses && 
-            renderCurrentGuess(playerGuesses.guesses.length)
-          }
-          {Array(game.maxGuesses - playerGuesses.guesses.length - 1)
-            .fill(null)
-            .map((_, i) => renderEmptyRow(playerGuesses.guesses.length + i + 1))}
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.error}>{error}</Text>
         </View>
-
-        <View style={styles.boardDivider}>
-          <View style={styles.dividerLine} />
-        </View>
-
-        <View style={styles.gameBoard}>
-          {opponentGuesses.guesses.map((guess, i) => 
-            renderGuessRow(guess, opponentGuesses.results[i], true, i + game.maxGuesses)
-          )}
-          {Array(game.maxGuesses - opponentGuesses.guesses.length)
-            .fill(null)
-            .map((_, i) => renderEmptyRow(i + game.maxGuesses + opponentGuesses.guesses.length))}
-        </View>
-      </View>
+      )}
 
       <View style={styles.keyboardContainer}>
         {renderKeyboard()}
@@ -185,72 +207,60 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#121213',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  gameHeader: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3a3a3c',
+    paddingBottom: 8,
   },
-  playerInfo: {
+  titleSection: {
     alignItems: 'center',
-    flex: 1,
-  },
-  playerName: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  guessCount: {
-    backgroundColor: '#3a3a3c',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  guessCountText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  gameStatus: {
-    flex: 2,
-    alignItems: 'center',
+    marginBottom: 12,
   },
   gameTitle: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 28,
     fontWeight: 'bold',
-    letterSpacing: 1,
+    letterSpacing: 4,
   },
-  error: {
-    color: '#ff4040',
-    fontSize: 12,
+  opponentText: {
+    color: '#818384',
+    fontSize: 14,
     marginTop: 4,
-    textAlign: 'center',
   },
-  boardsContainer: {
-    flex: 1,
+  toggleContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 8,
-    paddingTop: 16,
-    paddingBottom: 8,
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#1a1a1b',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#3a3a3c',
+  },
+  toggleButtonActive: {
+    backgroundColor: '#2a2a2b',
+    borderColor: '#6366f1',
+  },
+  toggleText: {
+    color: '#818384',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  toggleTextActive: {
+    color: '#ffffff',
+  },
+  boardContainer: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: 12,
   },
   gameBoard: {
-    flex: 1,
     alignItems: 'center',
-  },
-  boardDivider: {
-    width: 24,
-    alignItems: 'center',
-  },
-  dividerLine: {
-    width: 1,
-    height: '100%',
-    backgroundColor: '#3a3a3c',
   },
   row: {
     flexDirection: 'row',
@@ -258,8 +268,8 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   cell: {
-    width: 40,
-    height: 40,
+    width: 50,
+    height: 50,
     borderWidth: 2,
     borderColor: '#3a3a3c',
     margin: 2,
@@ -269,9 +279,23 @@ const styles = StyleSheet.create({
   },
   cellText: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     textTransform: 'uppercase',
+  },
+  errorContainer: {
+    backgroundColor: '#ff4040',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    marginVertical: 8,
+    marginHorizontal: 16,
+  },
+  error: {
+    color: '#ffffff',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   keyboardContainer: {
     paddingBottom: 8,
