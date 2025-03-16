@@ -51,6 +51,9 @@ export const GameInviteBadge: React.FC = () => {
     onPanResponderRelease: (_, gestureState) => {
       // If swiped up more than 50 units, dismiss the notification
       if (gestureState.dy < -50 && currentInviteId) {
+        // First dismiss the invite
+        handleDismissInvite(currentInviteId);
+        // Then animate it off screen
         Animated.timing(pan, {
           toValue: { x: 0, y: -200 },
           duration: 200,
@@ -58,8 +61,6 @@ export const GameInviteBadge: React.FC = () => {
         }).start(() => {
           // Reset position after animation
           pan.setValue({ x: 0, y: 0 });
-          // Dismiss the invite
-          handleDismissInvite(currentInviteId);
         });
       } else {
         // Return to original position if not swiped far enough
@@ -99,6 +100,23 @@ export const GameInviteBadge: React.FC = () => {
 
     fetchSenderNames();
   }, [receivedInvites]);
+
+  // Update dismissed invites when received invites change
+  useEffect(() => {
+    // If an invite is no longer in receivedInvites, it means it was declined or accepted
+    // So we should add it to dismissedInvites
+    const currentInviteIds = new Set(receivedInvites.map(invite => invite.id));
+    setDismissedInvites(prev => {
+      const newDismissed = new Set(prev);
+      // Add any invites that are no longer in receivedInvites
+      invitesWithNames.forEach(invite => {
+        if (!currentInviteIds.has(invite.id)) {
+          newDismissed.add(invite.id!);
+        }
+      });
+      return newDismissed;
+    });
+  }, [receivedInvites, invitesWithNames]);
 
   console.log('GameInviteBadge - Current received invites:', invitesWithNames);
 

@@ -26,6 +26,7 @@ export default function GamesScreen() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [selectedGame, setSelectedGame] = useState<GameCard | null>(null);
   const [invitesWithNames, setInvitesWithNames] = useState<Array<{ id?: string; gameType: string; senderId: string; senderName: string }>>([]);
+  const [sentInvitesWithNames, setSentInvitesWithNames] = useState<Array<{ id?: string; gameType: string; receiverId: string; receiverName: string }>>([]);
   
   // Sample game data
   const games: GameCard[] = [
@@ -170,6 +171,39 @@ export default function GamesScreen() {
 
     fetchSenderNames();
   }, [receivedInvites]);
+
+  // Fetch recipient names for sent invites
+  useEffect(() => {
+    const fetchRecipientNames = async () => {
+      if (!sentInvites.length) {
+        setSentInvitesWithNames([]);
+        return;
+      }
+
+      const invitesWithRecipientNames = await Promise.all(
+        sentInvites.map(async (invite) => {
+          try {
+            const recipientDoc = await getDoc(doc(firestore, 'users', invite.receiverId));
+            const recipientData = recipientDoc.data();
+            return {
+              ...invite,
+              receiverName: recipientData?.displayName || 'Unknown User'
+            };
+          } catch (error) {
+            console.error('Error fetching recipient name:', error);
+            return {
+              ...invite,
+              receiverName: 'Unknown User'
+            };
+          }
+        })
+      );
+
+      setSentInvitesWithNames(invitesWithRecipientNames);
+    };
+
+    fetchRecipientNames();
+  }, [sentInvites]);
 
   // Handle sending game invite
   const handleSendInvite = async (friendId: string) => {
@@ -321,7 +355,7 @@ export default function GamesScreen() {
             {sentInvites.length > 0 && (
               <View style={styles.inviteSubsection}>
                 <Text style={styles.subsectionTitle}>Sent</Text>
-                {sentInvites.map((invite) => (
+                {sentInvitesWithNames.map((invite) => (
                   <View key={invite.id} style={styles.inviteCard}>
                     <View style={styles.inviteContent}>
                       <Ionicons name="game-controller" size={24} color="#6366f1" />
@@ -330,7 +364,7 @@ export default function GamesScreen() {
                           {getGameDisplayName(invite.gameType)}
                         </Text>
                         <Text style={styles.inviteSubtext}>
-                          To: {invite.receiverId}
+                          To: {invite.receiverName}
                         </Text>
                       </View>
                     </View>
