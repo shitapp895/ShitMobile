@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { Game, subscribeToGame, makeMove } from '../services/database/gameService';
@@ -17,57 +17,15 @@ export default function GameScreen() {
   const { gameId, gameType } = route.params as { gameId: string; gameType: string };
 
   const handleQuitGame = () => {
-    Alert.alert(
-      'Quit Game',
-      'Are you sure you want to quit?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Quit',
-          style: 'destructive',
-          onPress: () => navigation.goBack()
-        }
-      ]
-    );
+    navigation.goBack();
   };
 
   useEffect(() => {
     const setupGame = async () => {
       try {
         // Subscribe to game updates
-        unsubscribeRef.current = subscribeToGame(gameId, async (updatedGame) => {
+        unsubscribeRef.current = subscribeToGame(gameId, (updatedGame) => {
           setGame(updatedGame);
-          
-          // Update opponent's name if needed
-          const opponentId = updatedGame.players.find((id: string) => id !== userData?.uid);
-          if (opponentId) {
-            const opponentDoc = await getDoc(doc(firestore, 'users', opponentId));
-            if (opponentDoc.exists()) {
-              const opponentData = opponentDoc.data();
-              setOpponentName(opponentData.displayName || 'Opponent');
-            }
-          }
-          
-          // If game is completed, show result
-          if (updatedGame.status === 'completed') {
-            let message = '';
-            if (updatedGame.winner === 'draw') {
-              message = "It's a draw!";
-            } else if (updatedGame.winner === userData?.uid) {
-              message = 'You won!';
-            } else {
-              message = 'You lost!';
-            }
-            Alert.alert('Game Over', message, [
-              {
-                text: 'OK',
-                onPress: () => navigation.goBack()
-              }
-            ]);
-          }
         });
 
         // Get opponent's name
@@ -99,7 +57,6 @@ export default function GameScreen() {
         }
       } catch (error) {
         console.error('Error setting up game:', error);
-        Alert.alert('Error', 'Failed to load game. Please try again.');
         navigation.goBack();
       }
     };
@@ -123,7 +80,6 @@ export default function GameScreen() {
       await makeMove(gameId, userData.uid, position);
     } catch (error) {
       console.error('Error making move:', error);
-      Alert.alert('Error', 'Failed to make move. Please try again.');
     }
   };
 
@@ -134,6 +90,29 @@ export default function GameScreen() {
       </View>
     );
   }
+
+  const getGameResult = () => {
+    if (game.status !== 'completed') return null;
+    
+    if (game.winner === 'draw') {
+      return {
+        text: "It's a draw!",
+        color: '#94a3b8'
+      };
+    } else if (game.winner === userData?.uid) {
+      return {
+        text: 'You won!',
+        color: '#22c55e'
+      };
+    } else {
+      return {
+        text: 'You lost!',
+        color: '#ef4444'
+      };
+    }
+  };
+
+  const gameResult = getGameResult();
 
   return (
     <View style={styles.container}>
@@ -167,6 +146,20 @@ export default function GameScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {gameResult && (
+        <View style={styles.resultOverlay}>
+          <Text style={[styles.resultText, { color: gameResult.color }]}>
+            {gameResult.text}
+          </Text>
+          <TouchableOpacity 
+            style={styles.playAgainButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.playAgainButtonText}>Back To Shitting</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -243,5 +236,33 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     textAlign: 'center',
     marginTop: 20,
+  },
+  resultOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  resultText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  playAgainButton: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  playAgainButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
   },
 }); 
