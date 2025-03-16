@@ -12,6 +12,7 @@ export interface UseGameInvitesResult {
   acceptInvite: (inviteId: string) => Promise<{ gameId: string; gameType: string }>;
   declineInvite: (inviteId: string) => Promise<void>;
   refreshInvites: () => Promise<void>;
+  cancelInvite: (inviteId: string) => Promise<void>;
 }
 
 export const useGameInvites = (): UseGameInvitesResult => {
@@ -152,6 +153,11 @@ export const useGameInvites = (): UseGameInvitesResult => {
     }
   };
 
+  const cancelInvite = async (inviteId: string) => {
+    if (!userData?.uid) return;
+    await gameInviteService.cancelGameInvite(inviteId);
+  };
+
   return {
     receivedInvites,
     sentInvites,
@@ -161,5 +167,6 @@ export const useGameInvites = (): UseGameInvitesResult => {
     acceptInvite,
     declineInvite,
     refreshInvites: fetchInvites,
+    cancelInvite
   };
 }; 

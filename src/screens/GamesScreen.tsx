@@ -20,7 +20,7 @@ interface GameCard {
 
 export default function GamesScreen() {
   const { userData } = useAuth();
-  const { sendInvite, sentInvites, receivedInvites, acceptInvite, declineInvite } = useGameInvites();
+  const { sendInvite, sentInvites, receivedInvites, acceptInvite, declineInvite, cancelInvite } = useGameInvites();
   const [friends, setFriends] = useState<FriendData[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -236,6 +236,15 @@ export default function GamesScreen() {
     }
   };
 
+  const handleCancelInvite = async (inviteId: string) => {
+    try {
+      await cancelInvite(inviteId);
+      Alert.alert('Success', 'Game invite cancelled');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to cancel game invite. Please try again.');
+    }
+  };
+
   // Render a game card
   const renderGameCard = (game: GameCard) => (
     <TouchableOpacity 
@@ -357,19 +366,24 @@ export default function GamesScreen() {
                 <Text style={styles.subsectionTitle}>Sent</Text>
                 {sentInvitesWithNames.map((invite) => (
                   <View key={invite.id} style={styles.inviteCard}>
-                    <View style={styles.inviteContent}>
-                      <Ionicons name="game-controller" size={24} color="#6366f1" />
-                      <View style={styles.inviteTextContainer}>
-                        <Text style={styles.inviteText}>
-                          {getGameDisplayName(invite.gameType)}
-                        </Text>
-                        <Text style={styles.inviteSubtext}>
-                          To: {invite.receiverName}
-                        </Text>
+                    <View style={styles.inviteCardContent}>
+                      <View style={styles.inviteContent}>
+                        <Ionicons name="game-controller" size={24} color="#6366f1" />
+                        <View style={styles.inviteTextContainer}>
+                          <Text style={styles.inviteText}>
+                            {getGameDisplayName(invite.gameType)}
+                          </Text>
+                          <Text style={styles.inviteSubtext}>
+                            To: {invite.receiverName}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                    <View style={styles.inviteStatus}>
-                      <Text style={styles.statusText}>Pending</Text>
+                      <TouchableOpacity
+                        style={[styles.actionButton, styles.cancelButton]}
+                        onPress={() => handleCancelInvite(invite.id!)}
+                      >
+                        <Text style={styles.actionButtonText}>Cancel</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 ))}
@@ -643,10 +657,15 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  inviteCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   inviteContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    flex: 1,
   },
   inviteTextContainer: {
     marginLeft: 10,
@@ -667,15 +686,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 10,
   },
-  inviteStatus: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  statusText: {
-    fontSize: 14,
-    color: '#f59e0b',
-    fontWeight: '500',
-  },
   actionButton: {
     paddingHorizontal: 15,
     paddingVertical: 8,
@@ -687,6 +697,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366f1',
   },
   declineButton: {
+    backgroundColor: '#ef4444',
+  },
+  cancelButton: {
     backgroundColor: '#ef4444',
   },
   actionButtonText: {

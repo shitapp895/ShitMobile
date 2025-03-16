@@ -151,6 +151,24 @@ export const declineGameInvite = async (inviteId: string): Promise<void> => {
   }
 };
 
+// Cancel a game invite
+export const cancelGameInvite = async (inviteId: string): Promise<void> => {
+  try {
+    const inviteRef = doc(firestore, 'gameInvites', inviteId);
+    const inviteDoc = await getDoc(inviteRef);
+    
+    if (!inviteDoc.exists()) {
+      throw new Error('Game invite not found');
+    }
+    
+    // Delete the game invite document
+    await deleteDoc(inviteRef);
+  } catch (error) {
+    console.error('Error canceling game invite:', error);
+    throw error;
+  }
+};
+
 // Get received game invites
 export const getReceivedGameInvites = async (userId: string): Promise<GameInvite[]> => {
   try {
