@@ -161,12 +161,8 @@ export const GameInviteBadge: React.FC = () => {
         throw new Error('Invalid invite ID');
       }
       
-      const { gameId, gameType } = await acceptInvite(invite.id);
-      // Navigate to the game screen with the correct game ID
-      navigation.navigate('Game', {
-        gameId,
-        gameType
-      });
+      await acceptInvite(invite.id);
+      // Navigation is handled inside the acceptInvite function in useGameInvites
     } catch (error) {
       console.error('Error accepting invite:', error);
       Alert.alert('Error', 'Failed to accept game invite. Please try again.');
