@@ -100,87 +100,107 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
   };
 
   const renderKeyboard = () => {
+    const rows = [
+      ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+      ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+      ['ENTER', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']
+    ];
+
     return (
       <View style={styles.keyboard}>
-        {QWERTY_LAYOUT.map((row, i) => (
-          <View key={`row-${i}`} style={styles.keyboardRow}>
-            {row.map(key => (
-              <TouchableOpacity
-                key={`key-${key}`}
-                style={[
-                  styles.key,
-                  key === 'ENTER' && styles.wideKey,
-                  game.status !== 'active' && styles.disabledKey
-                ]}
-                onPress={() => handleKeyPress(key)}
-                disabled={game.status !== 'active'}
-              >
-                <Text style={styles.keyText}>{key}</Text>
-              </TouchableOpacity>
-            ))}
+        {rows.map((row, rowIndex) => (
+          <View key={rowIndex} style={styles.keyboardRow}>
+            {row.map((key) => {
+              const isWide = key === 'ENTER' || key === '⌫';
+              const keyStyle = [
+                styles.key,
+                isWide && styles.wideKey,
+                currentGuess.length === 5 && key === 'ENTER' && { backgroundColor: '#538d4e' },
+                key === '⌫' && currentGuess.length > 0 && { backgroundColor: '#538d4e' }
+              ];
+
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={keyStyle}
+                  onPress={() => handleKeyPress(key)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[
+                    styles.keyText,
+                    isWide && { fontSize: 14 }
+                  ]}>
+                    {key}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         ))}
       </View>
     );
   };
 
+  const renderGameBoard = (guesses: string[], results: { greens: number[], yellows: number[] }[], isOpponent: boolean) => {
+    const totalRows = game.maxGuesses;
+    const currentGuessIndex = guesses.length;
+    const rows = [];
+
+    // Add empty rows at the top
+    for (let i = 0; i < totalRows - currentGuessIndex - 1; i++) {
+      rows.push(renderEmptyRow(i));
+    }
+
+    // Add current guess row if not complete
+    if (!isOpponent && currentGuessIndex < totalRows) {
+      rows.push(renderCurrentGuess(totalRows - currentGuessIndex - 1));
+    }
+
+    // Add completed guesses from bottom up
+    for (let i = currentGuessIndex - 1; i >= 0; i--) {
+      rows.push(renderGuessRow(guesses[i], results[i], isOpponent, totalRows - i - 1));
+    }
+
+    return rows.reverse();
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.gameHeader}>
-        <View style={styles.titleSection}>
-          <Text style={styles.gameTitle}>TOILET WORDLE</Text>
-          <Text style={styles.opponentText}>Playing against {opponentName}</Text>
-        </View>
-        
-        <View style={styles.toggleContainer}>
-          <TouchableOpacity 
-            style={[
-              styles.toggleButton, 
-              showingPlayerBoard && styles.toggleButtonActive
-            ]}
-            onPress={() => setShowingPlayerBoard(true)}
-          >
-            <Text style={[
-              styles.toggleText,
-              showingPlayerBoard && styles.toggleTextActive
-            ]}>YOU ({playerGuesses.guesses.length}/6)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[
-              styles.toggleButton,
-              !showingPlayerBoard && styles.toggleButtonActive
-            ]}
-            onPress={() => setShowingPlayerBoard(false)}
-          >
-            <Text style={[
-              styles.toggleText,
-              !showingPlayerBoard && styles.toggleTextActive
-            ]}>THEM ({opponentGuesses.guesses.length}/6)</Text>
-          </TouchableOpacity>
-        </View>
+      <View style={styles.toggleContainer}>
+        <TouchableOpacity 
+          style={[
+            styles.toggleButton, 
+            showingPlayerBoard && styles.toggleButtonActive
+          ]}
+          onPress={() => setShowingPlayerBoard(true)}
+        >
+          <Text style={[
+            styles.toggleText,
+            showingPlayerBoard && styles.toggleTextActive
+          ]}>YOU ({playerGuesses.guesses.length}/6)</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[
+            styles.toggleButton,
+            !showingPlayerBoard && styles.toggleButtonActive
+          ]}
+          onPress={() => setShowingPlayerBoard(false)}
+        >
+          <Text style={[
+            styles.toggleText,
+            !showingPlayerBoard && styles.toggleTextActive
+          ]}>THEM ({opponentGuesses.guesses.length}/6)</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.boardContainer}>
         {showingPlayerBoard ? (
           <View style={styles.gameBoard}>
-            {playerGuesses.guesses.map((guess, i) => 
-              renderGuessRow(guess, playerGuesses.results[i], false, i)
-            )}
-            {playerGuesses.guesses.length < game.maxGuesses && 
-              renderCurrentGuess(playerGuesses.guesses.length)
-            }
-            {Array(game.maxGuesses - playerGuesses.guesses.length - 1)
-              .fill(null)
-              .map((_, i) => renderEmptyRow(playerGuesses.guesses.length + i + 1))}
+            {renderGameBoard(playerGuesses.guesses, playerGuesses.results, false)}
           </View>
         ) : (
           <View style={styles.gameBoard}>
-            {opponentGuesses.guesses.map((guess, i) => 
-              renderGuessRow(guess, opponentGuesses.results[i], true, i + game.maxGuesses)
-            )}
-            {Array(game.maxGuesses - opponentGuesses.guesses.length)
-              .fill(null)
-              .map((_, i) => renderEmptyRow(i + game.maxGuesses + opponentGuesses.guesses.length))}
+            {renderGameBoard(opponentGuesses.guesses, opponentGuesses.results, true)}
           </View>
         )}
       </View>
@@ -206,31 +226,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#121213',
-  },
-  gameHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
-  titleSection: {
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  gameTitle: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: 'bold',
-    letterSpacing: 4,
-  },
-  opponentText: {
-    color: '#818384',
-    fontSize: 14,
-    marginTop: 4,
+    paddingTop: 12,
   },
   toggleContainer: {
     flexDirection: 'row',
     gap: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
   toggleButton: {
     flex: 1,
@@ -298,42 +300,55 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   keyboardContainer: {
-    paddingBottom: 8,
+    paddingBottom: 32,
     paddingHorizontal: 4,
+    backgroundColor: '#121213',
     borderTopWidth: 1,
     borderTopColor: '#3a3a3c',
+    paddingTop: 8,
   },
   keyboard: {
     alignSelf: 'center',
     width: '100%',
-    maxWidth: 500,
-    paddingTop: 8,
+    maxWidth: 420,
   },
   keyboardRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 8,
+    paddingHorizontal: 4,
   },
   key: {
-    backgroundColor: '#818384',
-    borderRadius: 4,
-    minWidth: 32,
-    height: 48,
+    height: 52,
     margin: 2,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 6,
+    backgroundColor: '#818384',
+    paddingHorizontal: 4,
+    minWidth: 30,
+    flex: 1,
+    maxWidth: 40,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    elevation: 3,
   },
   wideKey: {
-    minWidth: 64,
-  },
-  disabledKey: {
-    opacity: 0.5,
+    minWidth: 60,
+    flex: 1.5,
+    maxWidth: 65,
+    backgroundColor: '#666668',
   },
   keyText: {
     color: '#ffffff',
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   quitButton: {
     display: 'none',
