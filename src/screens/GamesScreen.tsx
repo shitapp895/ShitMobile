@@ -25,6 +25,7 @@ export default function GamesScreen() {
   const [loading, setLoading] = useState(true);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [selectedGame, setSelectedGame] = useState<GameCard | null>(null);
+  const [invitesWithNames, setInvitesWithNames] = useState<Array<{ id?: string; gameType: string; senderId: string; senderName: string }>>([]);
   
   // Sample game data
   const games: GameCard[] = [
@@ -136,6 +137,39 @@ export default function GamesScreen() {
       statusListeners?.forEach(unsubscribe => unsubscribe());
     };
   }, [userData?.uid, userData?.friends]);
+
+  // Fetch sender names for received invites
+  useEffect(() => {
+    const fetchSenderNames = async () => {
+      if (!receivedInvites.length) {
+        setInvitesWithNames([]);
+        return;
+      }
+
+      const invitesWithSenderNames = await Promise.all(
+        receivedInvites.map(async (invite) => {
+          try {
+            const senderDoc = await getDoc(doc(firestore, 'users', invite.senderId));
+            const senderData = senderDoc.data();
+            return {
+              ...invite,
+              senderName: senderData?.displayName || 'Unknown User'
+            };
+          } catch (error) {
+            console.error('Error fetching sender name:', error);
+            return {
+              ...invite,
+              senderName: 'Unknown User'
+            };
+          }
+        })
+      );
+
+      setInvitesWithNames(invitesWithSenderNames);
+    };
+
+    fetchSenderNames();
+  }, [receivedInvites]);
 
   // Handle sending game invite
   const handleSendInvite = async (friendId: string) => {
@@ -252,7 +286,7 @@ export default function GamesScreen() {
             {receivedInvites.length > 0 && (
               <View style={styles.inviteSubsection}>
                 <Text style={styles.subsectionTitle}>Received</Text>
-                {receivedInvites.map((invite) => (
+                {invitesWithNames.map((invite) => (
                   <View key={invite.id} style={styles.inviteCard}>
                     <View style={styles.inviteContent}>
                       <Ionicons name="game-controller" size={24} color="#6366f1" />
@@ -261,7 +295,7 @@ export default function GamesScreen() {
                           {getGameDisplayName(invite.gameType)}
                         </Text>
                         <Text style={styles.inviteSubtext}>
-                          From: {invite.senderId}
+                          From: {invite.senderName}
                         </Text>
                       </View>
                     </View>

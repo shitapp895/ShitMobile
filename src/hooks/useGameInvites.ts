@@ -20,7 +20,8 @@ export const useGameInvites = (): UseGameInvitesResult => {
   const [sentInvites, setSentInvites] = useState<GameInvite[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
-  const [unsubscribe, setUnsubscribe] = useState<(() => void) | null>(null);
+  const [unsubscribeReceived, setUnsubscribeReceived] = useState<(() => void) | null>(null);
+  const [unsubscribeSent, setUnsubscribeSent] = useState<(() => void) | null>(null);
 
   // Fetch all invites
   const fetchInvites = useCallback(async () => {
@@ -50,28 +51,44 @@ export const useGameInvites = (): UseGameInvitesResult => {
     }
   }, [userData?.uid]);
 
-  // Set up real-time subscription for received invites
+  // Set up real-time subscriptions for both received and sent invites
   useEffect(() => {
     if (!userData?.uid) {
-      console.log('No user ID available, skipping subscription');
+      console.log('No user ID available, skipping subscriptions');
       return;
     }
 
-    console.log('Setting up real-time subscription for user:', userData.uid);
-    const unsubscribeFn = gameInviteService.subscribeToGameInvites(
+    console.log('Setting up real-time subscriptions for user:', userData.uid);
+    
+    // Subscribe to received invites
+    const unsubscribeReceivedFn = gameInviteService.subscribeToGameInvites(
       userData.uid,
       (invites) => {
-        console.log('Received real-time update:', invites);
+        console.log('Received real-time update for received invites:', invites);
         setReceivedInvites(invites);
       }
     );
 
-    setUnsubscribe(() => unsubscribeFn);
+    // Subscribe to sent invites
+    const unsubscribeSentFn = gameInviteService.subscribeToSentGameInvites(
+      userData.uid,
+      (invites) => {
+        console.log('Received real-time update for sent invites:', invites);
+        setSentInvites(invites);
+      }
+    );
+
+    setUnsubscribeReceived(() => unsubscribeReceivedFn);
+    setUnsubscribeSent(() => unsubscribeSentFn);
 
     return () => {
-      if (unsubscribe) {
-        console.log('Cleaning up subscription');
-        unsubscribe();
+      if (unsubscribeReceived) {
+        console.log('Cleaning up received invites subscription');
+        unsubscribeReceived();
+      }
+      if (unsubscribeSent) {
+        console.log('Cleaning up sent invites subscription');
+        unsubscribeSent();
       }
     };
   }, [userData?.uid]);

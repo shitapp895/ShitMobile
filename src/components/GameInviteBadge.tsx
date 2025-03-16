@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, PanResponder, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useGameInvites } from '../hooks/useGameInvites';
 import { useNavigation } from '@react-navigation/native';
@@ -34,6 +34,42 @@ export const GameInviteBadge: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
   const { userData } = useAuth();
   const [invitesWithNames, setInvitesWithNames] = useState<InviteWithSenderName[]>([]);
+  const [dismissedInvites, setDismissedInvites] = useState<Set<string>>(new Set());
+  const [currentInviteId, setCurrentInviteId] = useState<string | null>(null);
+  const pan = new Animated.ValueXY();
+
+  // Create pan responder for swipe gestures
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderMove: (_, gestureState) => {
+      // Only allow upward swipes
+      if (gestureState.dy < 0) {
+        pan.setValue({ x: 0, y: gestureState.dy });
+      }
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      // If swiped up more than 50 units, dismiss the notification
+      if (gestureState.dy < -50 && currentInviteId) {
+        Animated.timing(pan, {
+          toValue: { x: 0, y: -200 },
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => {
+          // Reset position after animation
+          pan.setValue({ x: 0, y: 0 });
+          // Dismiss the invite
+          handleDismissInvite(currentInviteId);
+        });
+      } else {
+        // Return to original position if not swiped far enough
+        Animated.spring(pan, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+        }).start();
+      }
+    },
+  });
 
   useEffect(() => {
     const fetchSenderNames = async () => {
@@ -89,6 +125,10 @@ export const GameInviteBadge: React.FC = () => {
     }
   };
 
+  const handleDismissInvite = (inviteId: string) => {
+    setDismissedInvites(prev => new Set([...prev, inviteId]));
+  };
+
   if (invitesWithNames.length === 0) {
     console.log('No received invites to display');
     return null;
@@ -96,37 +136,62 @@ export const GameInviteBadge: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {invitesWithNames.map((invite) => (
-        <View key={invite.id} style={styles.inviteCard}>
-          <View style={styles.inviteContent}>
-            <Ionicons name="game-controller" size={24} color="#6366f1" />
-            <View style={styles.inviteTextContainer}>
-              <Text style={styles.inviteText}>
-                Game Invite: {getGameDisplayName(invite.gameType)}
-              </Text>
-              <Text style={styles.inviteSubtext}>
-                From: {invite.senderName}
-              </Text>
+      {invitesWithNames.map((invite) => {
+        if (dismissedInvites.has(invite.id!)) return null;
+
+        const cardStyle = {
+          transform: [
+            { translateY: pan.y },
+            {
+              scale: pan.y.interpolate({
+                inputRange: [-200, 0],
+                outputRange: [0.8, 1],
+                extrapolate: 'clamp',
+              }),
+            },
+          ],
+        };
+
+        return (
+          <Animated.View 
+            key={invite.id} 
+            style={[styles.inviteCard, cardStyle]}
+            {...panResponder.panHandlers}
+            onStartShouldSetResponder={() => {
+              setCurrentInviteId(invite.id!);
+              return true;
+            }}
+          >
+            <View style={styles.inviteContent}>
+              <Ionicons name="game-controller" size={24} color="#6366f1" />
+              <View style={styles.inviteTextContainer}>
+                <Text style={styles.inviteText}>
+                  Game Invite: {getGameDisplayName(invite.gameType)}
+                </Text>
+                <Text style={styles.inviteSubtext}>
+                  From: {invite.senderName}
+                </Text>
+              </View>
             </View>
-          </View>
-          
-          <View style={styles.inviteActions}>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.acceptButton]}
-              onPress={() => handleAcceptInvite(invite.id!)}
-            >
-              <Text style={styles.actionButtonText}>Accept</Text>
-            </TouchableOpacity>
             
-            <TouchableOpacity
-              style={[styles.actionButton, styles.declineButton]}
-              onPress={() => handleDeclineInvite(invite.id!)}
-            >
-              <Text style={styles.actionButtonText}>Decline</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ))}
+            <View style={styles.inviteActions}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.acceptButton]}
+                onPress={() => handleAcceptInvite(invite.id!)}
+              >
+                <Text style={styles.actionButtonText}>Accept</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.actionButton, styles.declineButton]}
+                onPress={() => handleDeclineInvite(invite.id!)}
+              >
+                <Text style={styles.actionButtonText}>Decline</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        );
+      })}
     </View>
   );
 };

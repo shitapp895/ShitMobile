@@ -236,4 +236,25 @@ export const subscribeToGameInvites = (
   });
 
   return unsubscribe;
+};
+
+// Subscribe to sent game invites for real-time updates
+export const subscribeToSentGameInvites = (
+  userId: string,
+  onInvitesUpdate: (invites: GameInvite[]) => void
+): () => void => {
+  console.log('Setting up sent game invite subscription for user:', userId);
+  const q = query(
+    gameInvitesCollection,
+    where('senderId', '==', userId),
+    where('status', '==', 'pending')
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const invites = snapshot.docs.map(convertGameInviteDoc);
+    console.log('Received sent game invite update:', invites);
+    onInvitesUpdate(invites);
+  });
+
+  return unsubscribe;
 }; 
