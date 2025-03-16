@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, PanResponder, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useGameInvites } from '../hooks/useGameInvites';
@@ -30,13 +30,14 @@ const getGameDisplayName = (gameType: string): string => {
 };
 
 export const GameInviteBadge: React.FC = () => {
-  const { receivedInvites, acceptInvite, declineInvite } = useGameInvites();
+  const { receivedInvites, acceptInvite, declineInvite, handleDismissInvite } = useGameInvites();
   const navigation = useNavigation<NavigationProp>();
   const { userData } = useAuth();
   const [invitesWithNames, setInvitesWithNames] = useState<InviteWithSenderName[]>([]);
   const [dismissedInvites, setDismissedInvites] = useState<Set<string>>(new Set());
   const [currentInviteId, setCurrentInviteId] = useState<string | null>(null);
-  const pan = new Animated.ValueXY();
+  const pan = useRef(new Animated.ValueXY()).current;
+  const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Create pan responder for swipe gestures
   const panResponder = PanResponder.create({
@@ -72,9 +73,13 @@ export const GameInviteBadge: React.FC = () => {
     },
   });
 
+  // Fetch sender names for received invites
   useEffect(() => {
     const fetchSenderNames = async () => {
-      if (!receivedInvites.length) return;
+      if (!receivedInvites.length) {
+        setInvitesWithNames([]);
+        return;
+      }
 
       const invitesWithSenderNames = await Promise.all(
         receivedInvites.map(async (invite) => {
@@ -100,6 +105,31 @@ export const GameInviteBadge: React.FC = () => {
 
     fetchSenderNames();
   }, [receivedInvites]);
+
+  // Auto-dismiss timer effect
+  useEffect(() => {
+    // Clear any existing timer
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+    }
+
+    // Set up new timer for each non-dismissed invite
+    invitesWithNames.forEach(invite => {
+      if (!dismissedInvites.has(invite.id!)) {
+        dismissTimerRef.current = setTimeout(() => {
+          handleDismissInvite(invite.id!);
+          setDismissedInvites(prev => new Set([...prev, invite.id!]));
+        }, 5000); // 5 seconds
+      }
+    });
+
+    // Cleanup timer on unmount or when invites change
+    return () => {
+      if (dismissTimerRef.current) {
+        clearTimeout(dismissTimerRef.current);
+      }
+    };
+  }, [invitesWithNames, dismissedInvites]);
 
   // Update dismissed invites when received invites change
   useEffect(() => {
@@ -141,10 +171,6 @@ export const GameInviteBadge: React.FC = () => {
       console.error('Error declining game invite:', error);
       Alert.alert('Error', 'Failed to decline game invite. Please try again.');
     }
-  };
-
-  const handleDismissInvite = (inviteId: string) => {
-    setDismissedInvites(prev => new Set([...prev, inviteId]));
   };
 
   if (invitesWithNames.length === 0) {
