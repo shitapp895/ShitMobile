@@ -96,64 +96,76 @@ export const sendGameInvite = async (senderId: string, receiverId: string, gameT
   }
 };
 
-// Accept a game invite
-export const acceptGameInvite = async (inviteId: string): Promise<{ gameId: string, gameType: string }> => {
+// Add a new function to clean up old invites
+const cleanupOldInvites = async (userId: string) => {
   try {
-    const inviteRef = doc(firestore, 'gameInvites', inviteId);
+    // Only cleanup pending invites older than 24 hours
+    const oneDayAgo = Timestamp.fromMillis(Date.now() - 86400000);
+
+    const q = query(
+      gameInvitesCollection,
+      where('status', '==', 'pending'),
+      where('timestamp', '<', oneDayAgo)
+    );
+
+    const querySnapshot = await getDocs(q);
+    const batch = writeBatch(firestore);
+
+    querySnapshot.docs.forEach(doc => {
+      const invite = doc.data() as GameInvite;
+      if (invite.senderId === userId || invite.receiverId === userId) {
+        batch.delete(doc.ref);
+      }
+    });
+
+    await batch.commit();
+  } catch (error) {
+    console.error('Error cleaning up old invites:', error);
+  }
+};
+
+// Accept a game invite
+export const acceptInvite = async (inviteId: string): Promise<string> => {
+  try {
+    const inviteRef = doc(gameInvitesCollection, inviteId);
     const inviteDoc = await getDoc(inviteRef);
 
     if (!inviteDoc.exists()) {
-      throw new Error('Game invite not found');
+      throw new Error('Invite not found');
     }
 
-    const inviteData = inviteDoc.data() as GameInvite;
-    const { senderId, receiverId, gameType } = inviteData;
+    const invite = inviteDoc.data() as GameInvite;
+    if (invite.status !== 'pending') {
+      throw new Error('Invite is no longer pending');
+    }
 
-    // Create a new game using the game service
-    const gameData = {
-      type: gameType,
-      players: [senderId, receiverId],
-      status: 'active' as const,
-      currentTurn: senderId, // Sender goes first
-      createdAt: Timestamp.now(),
-      lastUpdated: Timestamp.now(),
-      ...(gameType === 'tictactoe' && { board: Array(9).fill(null) }),
-      ...(gameType === 'rps' && { 
-        choices: {
-          [senderId]: null,
-          [receiverId]: null
-        }
-      }),
-      ...(gameType === 'wordle' && {
-        word: 'TOILET', // TODO: Implement word selection
-        guesses: [],
-        maxGuesses: 6
-      }),
-      ...(gameType === 'hangman' && {
-        word: 'TOILET', // TODO: Implement word selection
-        guessedLetters: [],
-        remainingGuesses: 6,
-        displayWord: '______'
-      })
-    };
+    // Create the game based on the invite type
+    const gameId = await createGame(
+      invite.gameType,
+      [invite.senderId, invite.receiverId]
+    );
 
-    const gameId = await createGame(gameData);
-
-    // Update the invite with the game ID before deleting it
+    // First update the invite to accepted status with the gameId
+    // This allows the sender to be notified through their subscription
     await updateDoc(inviteRef, {
+      status: 'accepted',
       gameId,
-      status: 'accepted'
+      lastUpdated: Timestamp.now()
     });
 
-    // Delete the invite after a short delay to ensure the update is processed
+    // Delete the invite after a short delay to ensure the sender gets the update
     setTimeout(async () => {
-      await deleteDoc(inviteRef);
-    }, 1000);
+      try {
+        const docSnapshot = await getDoc(inviteRef);
+        if (docSnapshot.exists()) {
+          await deleteDoc(inviteRef);
+        }
+      } catch (error) {
+        console.error('Error cleaning up accepted invite:', error);
+      }
+    }, 2000);
 
-    return {
-      gameId,
-      gameType
-    };
+    return gameId;
   } catch (error) {
     console.error('Error accepting game invite:', error);
     throw error;
@@ -163,14 +175,14 @@ export const acceptGameInvite = async (inviteId: string): Promise<{ gameId: stri
 // Decline a game invite
 export const declineGameInvite = async (inviteId: string): Promise<void> => {
   try {
-    const inviteRef = doc(firestore, 'gameInvites', inviteId);
+    const inviteRef = doc(gameInvitesCollection, inviteId);
     const inviteDoc = await getDoc(inviteRef);
     
     if (!inviteDoc.exists()) {
       throw new Error('Game invite not found');
     }
     
-    // Delete the game invite document
+    // Delete the invite since it's been declined
     await deleteDoc(inviteRef);
   } catch (error) {
     console.error('Error declining game invite:', error);
@@ -181,15 +193,23 @@ export const declineGameInvite = async (inviteId: string): Promise<void> => {
 // Cancel a game invite
 export const cancelGameInvite = async (inviteId: string): Promise<void> => {
   try {
-    const inviteRef = doc(firestore, 'gameInvites', inviteId);
+    const inviteRef = doc(gameInvitesCollection, inviteId);
     const inviteDoc = await getDoc(inviteRef);
     
     if (!inviteDoc.exists()) {
       throw new Error('Game invite not found');
     }
+
+    const invite = inviteDoc.data() as GameInvite;
     
-    // Delete the game invite document
+    // Delete the invite immediately since it was cancelled by the sender
     await deleteDoc(inviteRef);
+
+    // Clean up other old invites for both players
+    await Promise.all([
+      cleanupOldInvites(invite.senderId),
+      cleanupOldInvites(invite.receiverId)
+    ]);
   } catch (error) {
     console.error('Error canceling game invite:', error);
     throw error;
@@ -268,19 +288,20 @@ export const subscribeToGameInvites = (
   onInvitesUpdate: (invites: GameInvite[]) => void
 ): () => void => {
   console.log('Setting up game invite subscription for user:', userId);
+  const oneDayAgo = Timestamp.fromMillis(Date.now() - 86400000);
+  
   const q = query(
     gameInvitesCollection,
     where('receiverId', '==', userId),
-    where('status', '==', 'pending')
+    where('status', '==', 'pending'),
+    where('timestamp', '>', oneDayAgo)
   );
 
-  const unsubscribe = onSnapshot(q, (snapshot) => {
+  return onSnapshot(q, (snapshot) => {
     const invites = snapshot.docs.map(convertGameInviteDoc);
     console.log('Received game invite update:', invites);
     onInvitesUpdate(invites);
   });
-
-  return unsubscribe;
 };
 
 // Subscribe to sent game invites for real-time updates
@@ -289,17 +310,16 @@ export const subscribeToSentGameInvites = (
   onInvitesUpdate: (invites: GameInvite[]) => void
 ): () => void => {
   console.log('Setting up sent game invite subscription for user:', userId);
+  
   const q = query(
     gameInvitesCollection,
     where('senderId', '==', userId),
     where('status', 'in', ['pending', 'accepted'])
   );
 
-  const unsubscribe = onSnapshot(q, (snapshot) => {
+  return onSnapshot(q, (snapshot) => {
     const invites = snapshot.docs.map(convertGameInviteDoc);
     console.log('Received sent game invite update:', invites);
     onInvitesUpdate(invites);
   });
-
-  return unsubscribe;
 }; 

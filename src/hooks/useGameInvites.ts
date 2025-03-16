@@ -6,6 +6,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { GameType } from '../services/database/gameService';
+import { Alert } from 'react-native';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -15,7 +16,7 @@ export interface UseGameInvitesResult {
   loading: boolean;
   error: Error | null;
   sendInvite: (receiverId: string, gameType: GameType) => Promise<void>;
-  acceptInvite: (inviteId: string) => Promise<{ gameId: string; gameType: string }>;
+  acceptInvite: (inviteId: string) => Promise<void>;
   declineInvite: (inviteId: string) => Promise<void>;
   refreshInvites: () => Promise<void>;
   cancelInvite: (inviteId: string) => Promise<void>;
@@ -129,24 +130,15 @@ export const useGameInvites = (): UseGameInvitesResult => {
   };
 
   // Accept a game invite
-  const acceptInvite = async (inviteId: string): Promise<{ gameId: string; gameType: string }> => {
-    if (!userData?.uid) {
-      throw new Error('User not authenticated');
-    }
-
+  const acceptInvite = async (inviteId: string) => {
     try {
-      setError(null);
-      const result = await gameInviteService.acceptGameInvite(inviteId);
-      // Navigate to the game screen for the accepting user
-      navigation.navigate('Game', {
-        gameId: result.gameId,
-        gameType: result.gameType
-      });
-      await fetchInvites();
-      return result;
-    } catch (err) {
-      setError(err as Error);
-      throw err;
+      console.log('Accepting game invite:', inviteId);
+      const gameId = await gameInviteService.acceptInvite(inviteId);
+      console.log('Game invite accepted, game created:', gameId);
+      navigation.navigate('Game', { gameId, gameType: receivedInvites.find(i => i.id === inviteId)?.gameType || 'tictactoe' });
+    } catch (error) {
+      console.error('Error accepting game invite:', error);
+      Alert.alert('Error', 'Failed to accept game invite');
     }
   };
 

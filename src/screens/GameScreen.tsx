@@ -6,6 +6,7 @@ import { Game, subscribeToGame, makeMove, abandonGame } from '../services/databa
 import { doc, getDoc } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import WordleGame from '../components/WordleGame';
 
 // Game Components
 const TicTacToeGame: React.FC<{
@@ -79,21 +80,6 @@ const RPSGame: React.FC<{
           </TouchableOpacity>
         );
       })}
-    </View>
-  );
-};
-
-const WordleGame: React.FC<{
-  game: Game;
-  onMove: (guess: string) => void;
-  disabled: boolean;
-}> = ({ game, onMove, disabled }) => {
-  if (game.type !== 'wordle') return null;
-
-  return (
-    <View style={styles.wordleContainer}>
-      {/* TODO: Implement Wordle UI */}
-      <Text style={styles.placeholderText}>Wordle Coming Soon</Text>
     </View>
   );
 };
@@ -292,8 +278,7 @@ export default function GameScreen() {
       {game.type === 'wordle' && (
         <WordleGame
           game={game}
-          onMove={handleMove}
-          disabled={isDisabled}
+          onQuit={handleQuitGame}
         />
       )}
       {game.type === 'hangman' && (
@@ -463,11 +448,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 5,
     fontStyle: 'italic',
-  },
-  wordleContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   hangmanContainer: {
     flex: 1,

@@ -10,6 +10,7 @@ import {
   QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { firestore } from '../../firebase/config';
+import { getRandomWord } from './wordService';
 
 // Types
 export type GameType = 'tictactoe' | 'rps' | 'wordle' | 'hangman';
@@ -40,8 +41,19 @@ export interface RPSGame extends BaseGame {
 export interface WordleGame extends BaseGame {
   type: 'wordle';
   word: string;
-  guesses: string[];
+  playerGuesses: {
+    [playerId: string]: {
+      guesses: string[];
+      results: {
+        greens: number[];
+        yellows: number[];
+      }[];
+    };
+  };
   maxGuesses: number;
+  finishTimes: {
+    [playerId: string]: Timestamp | null;
+  };
 }
 
 export interface HangmanGame extends BaseGame {
@@ -89,8 +101,9 @@ const convertGameDoc = (doc: QueryDocumentSnapshot<DocumentData>): Game => {
         ...baseGame,
         type: 'wordle',
         word: data.word,
-        guesses: data.guesses,
-        maxGuesses: data.maxGuesses
+        playerGuesses: data.playerGuesses,
+        maxGuesses: data.maxGuesses,
+        finishTimes: data.finishTimes
       };
     case 'hangman':
       return {
@@ -107,15 +120,64 @@ const convertGameDoc = (doc: QueryDocumentSnapshot<DocumentData>): Game => {
 };
 
 // Create a new game
-export const createGame = async (gameData: Omit<Game, 'id'>): Promise<string> => {
-  try {
-    const gameRef = doc(collection(firestore, 'games'));
-    await setDoc(gameRef, gameData);
-    return gameRef.id;
-  } catch (error) {
-    console.error('Error creating game:', error);
-    throw error;
+export const createGame = async (
+  type: GameType,
+  players: string[],
+  data?: any
+): Promise<string> => {
+  const gameRef = doc(gamesCollection);
+  const now = Timestamp.now();
+
+  let gameData: any = {
+    type,
+    players,
+    status: 'active',
+    currentTurn: players[0],
+    createdAt: now,
+    lastUpdated: now
+  };
+
+  switch (type) {
+    case 'tictactoe':
+      gameData = {
+        ...gameData,
+        board: Array(9).fill(null)
+      };
+      break;
+    case 'rps':
+      gameData = {
+        ...gameData,
+        choices: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: null
+        }), {})
+      };
+      break;
+    case 'wordle':
+      gameData = {
+        ...gameData,
+        word: getRandomWord(),
+        playerGuesses: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: {
+            guesses: [],
+            results: []
+          }
+        }), {}),
+        maxGuesses: 6,
+        finishTimes: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: null
+        }), {})
+      };
+      break;
+    case 'hangman':
+      // ... existing hangman case ...
+      break;
   }
+
+  await setDoc(gameRef, gameData);
+  return gameRef.id;
 };
 
 // Get a game by ID
@@ -194,13 +256,43 @@ export const makeMove = async (gameId: string, playerId: string, move: any): Pro
         break;
 
       case 'wordle':
-        // Add the guess to the list
-        updates.guesses = [...game.guesses, move];
+        if (typeof move !== 'string' || move.length !== 5) {
+          throw new Error('Invalid move: guess must be a 5-letter word');
+        }
+
+        const playerGuesses = game.playerGuesses[playerId] || { guesses: [], results: [] };
+        if (playerGuesses.guesses.length >= game.maxGuesses) {
+          throw new Error('No more guesses allowed');
+        }
+
+        const result = evaluateWordleGuess(move.toUpperCase(), game.word);
         
-        // Check if the guess is correct or if max guesses reached
-        if (move === game.word || game.guesses.length + 1 >= game.maxGuesses) {
+        updates.playerGuesses = {
+          ...game.playerGuesses,
+          [playerId]: {
+            guesses: [...playerGuesses.guesses, move.toUpperCase()],
+            results: [...playerGuesses.results, result]
+          }
+        };
+
+        // Update finish time if this was the player's last guess or they found the word
+        if (playerGuesses.guesses.length === game.maxGuesses - 1 || move.toUpperCase() === game.word) {
+          updates.finishTimes = {
+            ...game.finishTimes,
+            [playerId]: Timestamp.now()
+          };
+        }
+
+        // Check for winner
+        const wordleWinner = determineWordleWinner({
+          ...game,
+          playerGuesses: updates.playerGuesses,
+          finishTimes: updates.finishTimes || game.finishTimes
+        } as WordleGame);
+
+        if (wordleWinner) {
           updates.status = 'completed';
-          updates.winner = move === game.word ? playerId : 'draw';
+          updates.winner = wordleWinner;
         }
         break;
 
@@ -314,4 +406,71 @@ export const abandonGame = async (gameId: string): Promise<void> => {
     console.error('Error abandoning game:', error);
     throw error;
   }
+};
+
+// Helper function to evaluate a Wordle guess
+const evaluateWordleGuess = (guess: string, targetWord: string): { greens: number[], yellows: number[] } => {
+  const greens: number[] = [];
+  const yellows: number[] = [];
+  const targetLetters = targetWord.split('');
+  const guessLetters = guess.split('');
+
+  // First pass: Find green matches
+  guessLetters.forEach((letter, index) => {
+    if (letter === targetLetters[index]) {
+      greens.push(index);
+      targetLetters[index] = '#'; // Mark as used
+      guessLetters[index] = '*'; // Mark as matched
+    }
+  });
+
+  // Second pass: Find yellow matches
+  guessLetters.forEach((letter, index) => {
+    if (letter === '*') return; // Skip already matched letters
+    const targetIndex = targetLetters.findIndex(t => t === letter);
+    if (targetIndex !== -1) {
+      yellows.push(index);
+      targetLetters[targetIndex] = '#'; // Mark as used
+    }
+  });
+
+  return { greens, yellows };
+};
+
+// Helper function to determine Wordle winner
+const determineWordleWinner = (game: WordleGame): string | null => {
+  const [player1, player2] = game.players;
+  const p1Guesses = game.playerGuesses[player1];
+  const p2Guesses = game.playerGuesses[player2];
+
+  // Check if either player has guessed the word correctly
+  const p1LastGuess = p1Guesses.guesses[p1Guesses.guesses.length - 1];
+  const p2LastGuess = p2Guesses.guesses[p2Guesses.guesses.length - 1];
+
+  if (p1LastGuess === game.word) return player1;
+  if (p2LastGuess === game.word) return player2;
+
+  // If both players have used all guesses
+  if (p1Guesses.guesses.length === game.maxGuesses && p2Guesses.guesses.length === game.maxGuesses) {
+    const p1Greens = p1Guesses.results[p1Guesses.results.length - 1].greens.length;
+    const p2Greens = p2Guesses.results[p2Guesses.results.length - 1].greens.length;
+
+    if (p1Greens !== p2Greens) {
+      return p1Greens > p2Greens ? player1 : player2;
+    }
+
+    const p1Yellows = p1Guesses.results[p1Guesses.results.length - 1].yellows.length;
+    const p2Yellows = p2Guesses.results[p2Guesses.results.length - 1].yellows.length;
+
+    if (p1Yellows !== p2Yellows) {
+      return p1Yellows > p2Yellows ? player1 : player2;
+    }
+
+    // If still tied, compare finish times
+    if (game.finishTimes[player1] && game.finishTimes[player2]) {
+      return game.finishTimes[player1]!.seconds < game.finishTimes[player2]!.seconds ? player1 : player2;
+    }
+  }
+
+  return null;
 }; 
