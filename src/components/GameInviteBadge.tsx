@@ -141,15 +141,15 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   inviteCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e293b',
     borderRadius: 12,
     padding: 15,
     marginBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   inviteContent: {
     flexDirection: 'row',
@@ -163,11 +163,11 @@ const styles = StyleSheet.create({
   inviteText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1f2937',
+    color: '#fff',
   },
   inviteSubtext: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#94a3b8',
     marginTop: 2,
   },
   inviteActions: {
