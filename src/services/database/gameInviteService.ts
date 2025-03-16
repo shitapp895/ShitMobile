@@ -20,14 +20,14 @@ import {
 } from 'firebase/firestore';
 import { ref, onValue, get } from 'firebase/database';
 import { firestore, database } from '../../firebase/config';
-import { createGame } from './gameService';
+import { createGame, GameType } from './gameService';
 
 // Types
 export interface GameInvite {
   id?: string;
   senderId: string;
   receiverId: string;
-  gameType: 'tictactoe';
+  gameType: GameType;
   status: 'pending' | 'accepted' | 'declined';
   timestamp: Timestamp;
   gameId?: string;
@@ -51,7 +51,7 @@ const convertGameInviteDoc = (doc: QueryDocumentSnapshot<DocumentData>): GameInv
 };
 
 // Send a game invite
-export const sendGameInvite = async (senderId: string, receiverId: string, gameType: 'tictactoe'): Promise<string> => {
+export const sendGameInvite = async (senderId: string, receiverId: string, gameType: GameType): Promise<string> => {
   try {
     console.log('Attempting to send game invite:', { senderId, receiverId, gameType });
     
@@ -115,9 +115,26 @@ export const acceptGameInvite = async (inviteId: string): Promise<{ gameId: stri
       players: [senderId, receiverId],
       status: 'active' as const,
       currentTurn: senderId, // Sender goes first
-      board: Array(9).fill(null),
       createdAt: Timestamp.now(),
-      lastUpdated: Timestamp.now()
+      lastUpdated: Timestamp.now(),
+      ...(gameType === 'tictactoe' && { board: Array(9).fill(null) }),
+      ...(gameType === 'rps' && { 
+        choices: {
+          [senderId]: null,
+          [receiverId]: null
+        }
+      }),
+      ...(gameType === 'wordle' && {
+        word: 'TOILET', // TODO: Implement word selection
+        guesses: [],
+        maxGuesses: 6
+      }),
+      ...(gameType === 'hangman' && {
+        word: 'TOILET', // TODO: Implement word selection
+        guessedLetters: [],
+        remainingGuesses: 6,
+        displayWord: '______'
+      })
     };
 
     const gameId = await createGame(gameData);

@@ -213,7 +213,6 @@ export default function GamesScreen() {
       console.log('Sending game invite to friend:', friendId, 'for game:', selectedGame.id);
       await sendInvite(friendId, selectedGame.id as 'tictactoe');
       setShowInviteModal(false);
-      Alert.alert('Success', 'Game invite sent!');
     } catch (error) {
       console.error('Error sending game invite:', error);
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to send game invite. Please try again.');

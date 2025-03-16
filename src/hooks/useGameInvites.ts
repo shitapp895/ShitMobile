@@ -5,6 +5,7 @@ import { GameInvite } from '../services/database/gameInviteService';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import { GameType } from '../services/database/gameService';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -13,7 +14,7 @@ export interface UseGameInvitesResult {
   sentInvites: GameInvite[];
   loading: boolean;
   error: Error | null;
-  sendInvite: (receiverId: string, gameType: 'tictactoe') => Promise<void>;
+  sendInvite: (receiverId: string, gameType: GameType) => Promise<void>;
   acceptInvite: (inviteId: string) => Promise<{ gameId: string; gameType: string }>;
   declineInvite: (inviteId: string) => Promise<void>;
   refreshInvites: () => Promise<void>;
@@ -108,7 +109,7 @@ export const useGameInvites = (): UseGameInvitesResult => {
   }, [fetchInvites]);
 
   // Send a game invite
-  const sendInvite = async (receiverId: string, gameType: 'tictactoe'): Promise<void> => {
+  const sendInvite = async (receiverId: string, gameType: GameType): Promise<void> => {
     if (!userData?.uid) {
       console.error('Cannot send invite: User not authenticated');
       throw new Error('User not authenticated');

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, PanResponder
 import { Ionicons } from '@expo/vector-icons';
 import { useGameInvites } from '../hooks/useGameInvites';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { doc, getDoc } from 'firebase/firestore';
@@ -41,6 +42,7 @@ export const GameInviteBadge: React.FC = () => {
   const [currentInviteId, setCurrentInviteId] = useState<string | null>(null);
   const pan = useRef(new Animated.ValueXY()).current;
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Create pan responder for swipe gestures
   const panResponder = PanResponder.create({
@@ -187,7 +189,7 @@ export const GameInviteBadge: React.FC = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { marginTop: insets.top }]}>
       {invitesWithNames.map((invite) => {
         if (dismissedInvites.has(invite.id!)) return null;
 
@@ -254,18 +256,20 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 1000,
-    padding: 10,
+    zIndex: 999,
   },
   inviteCard: {
     backgroundColor: '#1e293b',
-    borderRadius: 12,
+    margin: 10,
+    borderRadius: 15,
     padding: 15,
-    marginBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
     elevation: 5,
   },
   inviteContent: {
