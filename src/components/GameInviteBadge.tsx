@@ -11,6 +11,9 @@ import { GameInvite } from '../services/database/gameInviteService';
 
 type RootStackParamList = {
   Game: { gameId: string; gameType: string };
+  Wordle: { gameId: string; isHost: boolean; opponentId: string; opponentName: string };
+  WordChain: { gameId: string; isHost: boolean; opponentId: string; opponentName: string };
+  WordSearch: { gameId: string; isHost: boolean; opponentId: string; opponentName: string };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -150,15 +153,20 @@ export const GameInviteBadge: React.FC = () => {
 
   console.log('GameInviteBadge - Current received invites:', invitesWithNames);
 
-  const handleAcceptInvite = async (inviteId: string) => {
+  const handleAcceptInvite = async (invite: InviteWithSenderName) => {
     try {
-      console.log('Accepting game invite:', inviteId);
-      const { gameId, gameType } = await acceptInvite(inviteId);
-      console.log('Game invite accepted, navigating to game:', { gameId, gameType });
-      // Navigate to the game screen
-      navigation.navigate('Game', { gameId, gameType });
+      if (!invite.id) {
+        throw new Error('Invalid invite ID');
+      }
+      
+      const { gameId, gameType } = await acceptInvite(invite.id);
+      // Navigate to the game screen with the correct game ID
+      navigation.navigate('Game', {
+        gameId,
+        gameType
+      });
     } catch (error) {
-      console.error('Error accepting game invite:', error);
+      console.error('Error accepting invite:', error);
       Alert.alert('Error', 'Failed to accept game invite. Please try again.');
     }
   };
@@ -221,7 +229,7 @@ export const GameInviteBadge: React.FC = () => {
             <View style={styles.inviteActions}>
               <TouchableOpacity
                 style={[styles.actionButton, styles.acceptButton]}
-                onPress={() => handleAcceptInvite(invite.id!)}
+                onPress={() => handleAcceptInvite(invite)}
               >
                 <Text style={styles.actionButtonText}>Accept</Text>
               </TouchableOpacity>

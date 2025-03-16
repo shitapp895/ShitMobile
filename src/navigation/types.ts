@@ -31,4 +31,8 @@ export type RootStackParamList = {
   ShweetDetails: ShweetDetailsParams;
   UserProfile: UserProfileParams;
   ErrorHandling: undefined;
+  Game: {
+    gameId: string;
+    gameType: string;
+  };
 }; 

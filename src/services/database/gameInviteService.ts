@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import { ref, onValue, get } from 'firebase/database';
 import { firestore, database } from '../../firebase/config';
+import { createGame } from './gameService';
 
 // Types
 export interface GameInvite {
@@ -29,6 +30,7 @@ export interface GameInvite {
   gameType: 'tictactoe';
   status: 'pending' | 'accepted' | 'declined';
   timestamp: Timestamp;
+  gameId?: string;
 }
 
 // Collection reference
@@ -44,6 +46,7 @@ const convertGameInviteDoc = (doc: QueryDocumentSnapshot<DocumentData>): GameInv
     gameType: data.gameType,
     status: data.status,
     timestamp: data.timestamp,
+    gameId: data.gameId,
   };
 };
 
@@ -106,25 +109,32 @@ export const acceptGameInvite = async (inviteId: string): Promise<{ gameId: stri
     const inviteData = inviteDoc.data() as GameInvite;
     const { senderId, receiverId, gameType } = inviteData;
 
-    // Create a new game document
-    const gameRef = doc(collection(firestore, 'games'));
+    // Create a new game using the game service
     const gameData = {
       type: gameType,
       players: [senderId, receiverId],
-      status: 'active',
+      status: 'active' as const,
       currentTurn: senderId, // Sender goes first
       board: Array(9).fill(null),
       createdAt: Timestamp.now(),
       lastUpdated: Timestamp.now()
     };
 
-    await setDoc(gameRef, gameData);
+    const gameId = await createGame(gameData);
 
-    // Delete the invite
-    await deleteDoc(inviteRef);
+    // Update the invite with the game ID before deleting it
+    await updateDoc(inviteRef, {
+      gameId,
+      status: 'accepted'
+    });
+
+    // Delete the invite after a short delay to ensure the update is processed
+    setTimeout(async () => {
+      await deleteDoc(inviteRef);
+    }, 1000);
 
     return {
-      gameId: gameRef.id,
+      gameId,
       gameType
     };
   } catch (error) {
@@ -265,7 +275,7 @@ export const subscribeToSentGameInvites = (
   const q = query(
     gameInvitesCollection,
     where('senderId', '==', userId),
-    where('status', '==', 'pending')
+    where('status', 'in', ['pending', 'accepted'])
   );
 
   const unsubscribe = onSnapshot(q, (snapshot) => {

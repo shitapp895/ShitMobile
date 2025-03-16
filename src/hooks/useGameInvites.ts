@@ -2,6 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import * as gameInviteService from '../services/database/gameInviteService';
 import { GameInvite } from '../services/database/gameInviteService';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/types';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export interface UseGameInvitesResult {
   receivedInvites: GameInvite[];
@@ -18,6 +23,7 @@ export interface UseGameInvitesResult {
 
 export const useGameInvites = (): UseGameInvitesResult => {
   const { userData } = useAuth();
+  const navigation = useNavigation<NavigationProp>();
   const [receivedInvites, setReceivedInvites] = useState<GameInvite[]>([]);
   const [sentInvites, setSentInvites] = useState<GameInvite[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -130,6 +136,11 @@ export const useGameInvites = (): UseGameInvitesResult => {
     try {
       setError(null);
       const result = await gameInviteService.acceptGameInvite(inviteId);
+      // Navigate to the game screen for the accepting user
+      navigation.navigate('Game', {
+        gameId: result.gameId,
+        gameType: result.gameType
+      });
       await fetchInvites();
       return result;
     } catch (err) {
@@ -137,6 +148,22 @@ export const useGameInvites = (): UseGameInvitesResult => {
       throw err;
     }
   };
+
+  // Watch for changes in sent invites to detect when an invite is accepted
+  useEffect(() => {
+    if (!userData?.uid) return;
+
+    // Check if any sent invites were just accepted
+    sentInvites.forEach(invite => {
+      if (invite.status === 'accepted' && invite.gameId) {
+        // This invite was just accepted, navigate to the game
+        navigation.navigate('Game', {
+          gameId: invite.gameId,
+          gameType: invite.gameType
+        });
+      }
+    });
+  }, [sentInvites, userData?.uid]);
 
   // Decline a game invite
   const declineInvite = async (inviteId: string): Promise<void> => {

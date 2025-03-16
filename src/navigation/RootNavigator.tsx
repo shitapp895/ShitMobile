@@ -10,6 +10,7 @@ import MainNavigator from './MainNavigator';
 import { STORAGE_KEYS, APP_STATE, TIME } from '../constants/app';
 import SplashScreen from '../screens/SplashScreen';
 import ErrorHandlingScreen from '../screens/examples/ErrorHandlingScreen';
+import GameScreen from '../screens/GameScreen';
 import { theme } from '../theme';
 
 // Create the root stack navigator
@@ -151,6 +152,14 @@ const RootNavigator: React.FC = () => {
               name="Main" 
               component={MainNavigator} 
               options={{ headerShown: false }}
+            />
+            <Stack.Screen 
+              name="Game" 
+              component={GameScreen}
+              options={{ 
+                title: 'Game',
+                presentation: 'modal'
+              }}
             />
             <Stack.Screen 
               name="ErrorHandling" 
