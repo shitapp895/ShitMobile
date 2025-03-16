@@ -16,12 +16,40 @@ export default function GameScreen() {
 
   const { gameId, gameType } = route.params as { gameId: string; gameType: string };
 
+  const handleQuitGame = () => {
+    Alert.alert(
+      'Quit Game',
+      'Are you sure you want to quit?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Quit',
+          style: 'destructive',
+          onPress: () => navigation.goBack()
+        }
+      ]
+    );
+  };
+
   useEffect(() => {
     const setupGame = async () => {
       try {
         // Subscribe to game updates
-        unsubscribeRef.current = subscribeToGame(gameId, (updatedGame) => {
+        unsubscribeRef.current = subscribeToGame(gameId, async (updatedGame) => {
           setGame(updatedGame);
+          
+          // Update opponent's name if needed
+          const opponentId = updatedGame.players.find((id: string) => id !== userData?.uid);
+          if (opponentId) {
+            const opponentDoc = await getDoc(doc(firestore, 'users', opponentId));
+            if (opponentDoc.exists()) {
+              const opponentData = opponentDoc.data();
+              setOpponentName(opponentData.displayName || 'Opponent');
+            }
+          }
           
           // If game is completed, show result
           if (updatedGame.status === 'completed') {
@@ -43,16 +71,31 @@ export default function GameScreen() {
         });
 
         // Get opponent's name
+        console.log('Fetching opponent name for game:', gameId);
         const gameDoc = await getDoc(doc(firestore, 'games', gameId));
         if (gameDoc.exists()) {
           const gameData = gameDoc.data();
+          console.log('Game data:', gameData);
           const opponentId = gameData.players.find((id: string) => id !== userData?.uid);
+          console.log('Found opponent ID:', opponentId);
+          
           if (opponentId) {
             const opponentDoc = await getDoc(doc(firestore, 'users', opponentId));
             if (opponentDoc.exists()) {
-              setOpponentName(opponentDoc.data().displayName || 'Opponent');
+              const opponentData = opponentDoc.data();
+              console.log('Opponent data:', opponentData);
+              setOpponentName(opponentData.displayName || 'Opponent');
+            } else {
+              console.log('Opponent document not found');
+              setOpponentName('Opponent');
             }
+          } else {
+            console.log('No opponent ID found in game data');
+            setOpponentName('Opponent');
           }
+        } else {
+          console.log('Game document not found');
+          setOpponentName('Opponent');
         }
       } catch (error) {
         console.error('Error setting up game:', error);
@@ -95,6 +138,14 @@ export default function GameScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity 
+            style={styles.quitButton}
+            onPress={handleQuitGame}
+          >
+            <Text style={styles.quitButtonText}>Quit Game</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.title}>Tic Tac Toe</Text>
         <Text style={styles.subtitle}>Playing against {opponentName}</Text>
         <Text style={styles.turnIndicator}>
@@ -130,6 +181,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 30,
   },
+  headerTop: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 20,
+  },
+  quitButton: {
+    backgroundColor: '#334155',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ef4444',
+  },
+  quitButtonText: {
+    color: '#ef4444',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -154,11 +224,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 320,
     height: 320,
-  },
-  row: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: 10,
   },
   cell: {
     width: 100,

@@ -158,7 +158,8 @@ const RootNavigator: React.FC = () => {
               component={GameScreen}
               options={{ 
                 title: 'Game',
-                presentation: 'modal'
+                presentation: 'modal',
+                gestureEnabled: false
               }}
             />
             <Stack.Screen 
