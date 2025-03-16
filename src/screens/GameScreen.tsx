@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import { Game, subscribeToGame, makeMove } from '../services/database/gameService';
+import { Game, subscribeToGame, makeMove, abandonGame } from '../services/database/gameService';
 import { doc, getDoc } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 
@@ -16,8 +16,16 @@ export default function GameScreen() {
 
   const { gameId, gameType } = route.params as { gameId: string; gameType: string };
 
-  const handleQuitGame = () => {
-    navigation.goBack();
+  const handleQuitGame = async () => {
+    try {
+      if (game && game.status === 'active') {
+        await abandonGame(gameId);
+      }
+      navigation.goBack();
+    } catch (error) {
+      console.error('Error abandoning game:', error);
+      navigation.goBack();
+    }
   };
 
   useEffect(() => {
@@ -92,24 +100,30 @@ export default function GameScreen() {
   }
 
   const getGameResult = () => {
-    if (game.status !== 'completed') return null;
-    
-    if (game.winner === 'draw') {
+    if (game.status === 'completed') {
+      if (game.winner === 'draw') {
+        return {
+          text: "It's a draw!",
+          color: '#94a3b8'
+        };
+      } else if (game.winner === userData?.uid) {
+        return {
+          text: 'You won!',
+          color: '#22c55e'
+        };
+      } else {
+        return {
+          text: 'You lost!',
+          color: '#ef4444'
+        };
+      }
+    } else if (game.status === 'abandoned') {
       return {
-        text: "It's a draw!",
+        text: 'Opponent quit the game',
         color: '#94a3b8'
       };
-    } else if (game.winner === userData?.uid) {
-      return {
-        text: 'You won!',
-        color: '#22c55e'
-      };
-    } else {
-      return {
-        text: 'You lost!',
-        color: '#ef4444'
-      };
     }
+    return null;
   };
 
   const gameResult = getGameResult();
@@ -138,7 +152,7 @@ export default function GameScreen() {
             key={index}
             style={styles.cell}
             onPress={() => handleMove(index)}
-            disabled={cell !== null || game.currentTurn !== userData?.uid}
+            disabled={cell !== null || game.currentTurn !== userData?.uid || game.status !== 'active'}
           >
             <Text style={styles.cellText}>
               {cell === userData?.uid ? 'X' : cell === null ? '' : 'O'}
@@ -156,7 +170,7 @@ export default function GameScreen() {
             style={styles.playAgainButton}
             onPress={() => navigation.goBack()}
           >
-            <Text style={styles.playAgainButtonText}>Back To Shitting</Text>
+            <Text style={styles.playAgainButtonText}>Continue Shitting</Text>
           </TouchableOpacity>
         </View>
       )}

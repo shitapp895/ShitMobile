@@ -16,7 +16,7 @@ export interface Game {
   id?: string;
   type: 'tictactoe';
   players: string[];
-  status: 'active' | 'completed';
+  status: 'active' | 'completed' | 'abandoned';
   currentTurn: string;
   board: (string | null)[];
   createdAt: Timestamp;
@@ -151,4 +151,18 @@ const checkWinner = (board: (string | null)[], players: string[]): string | null
   }
   
   return null;
+};
+
+// Abandon a game
+export const abandonGame = async (gameId: string): Promise<void> => {
+  try {
+    const gameRef = doc(firestore, 'games', gameId);
+    await updateDoc(gameRef, {
+      status: 'abandoned',
+      lastUpdated: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error abandoning game:', error);
+    throw error;
+  }
 }; 
