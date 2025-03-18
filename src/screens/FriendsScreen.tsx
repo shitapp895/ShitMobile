@@ -1325,32 +1325,25 @@ export default function FriendsScreen() {
           <Text style={styles.loadingText}>Loading friends...</Text>
         </View>
       ) : activeTab === 'requests' ? (
-        requestsLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6366f1" />
-            <Text style={styles.loadingText}>Loading requests...</Text>
-          </View>
-        ) : (
-          <SectionList
-            sections={getRequestSections()}
-            renderItem={renderRequestItem}
-            renderSectionHeader={renderSectionHeader}
-            renderSectionFooter={({ section }) => section.data.length === 0 ? renderSectionEmpty({ section }) : null}
-            keyExtractor={(item) => item.id!}
-            style={styles.list}
-            contentContainerStyle={styles.requestsContent}
-            stickySectionHeadersEnabled={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                colors={['#6366f1']}
-                tintColor="#6366f1"
-              />
-            }
-            ListEmptyComponent={null}
-          />
-        )
+        <SectionList
+          sections={getRequestSections()}
+          renderItem={renderRequestItem}
+          renderSectionHeader={renderSectionHeader}
+          renderSectionFooter={({ section }) => section.data.length === 0 ? renderSectionEmpty({ section }) : null}
+          keyExtractor={(item) => item.id!}
+          style={styles.list}
+          contentContainerStyle={styles.requestsContent}
+          stickySectionHeadersEnabled={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing || requestsLoading}
+              onRefresh={handleRefresh}
+              colors={['#6366f1']}
+              tintColor="#6366f1"
+            />
+          }
+          ListEmptyComponent={null}
+        />
       ) : (
         <FlatList
           data={filteredFriends}
