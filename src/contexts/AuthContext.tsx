@@ -22,14 +22,23 @@ interface UserData {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  totalShits: number;
+  averageShitDuration: number;
+  totalShitDuration: number;
+  friends: string[];
+  // These fields are merged from userStatus for UI compatibility
+  isOnline?: boolean;
+  isShitting?: boolean;
+  lastActive?: number;
+  lastShitStartTime?: number | null;
+}
+
+interface UserStatus {
   isOnline: boolean;
   isShitting: boolean;
   lastActive: number;
-  totalShits?: number;
-  averageShitDuration?: number;
-  lastShitStartTime?: number;
-  friends?: string[];
-  totalShitDuration?: number;
+  lastShitStartTime: number | null;
+  sessions?: { [key: string]: boolean };
 }
 
 interface AuthContextType {
@@ -56,6 +65,7 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Listen for auth state changes
@@ -68,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userStatusRef = ref(database, `status/${user.uid}`);
         const isOfflineForDatabase = {
           isOnline: false,
+          isShitting: false,
           lastChanged: Date.now(),
         };
         const isOnlineForDatabase = {
@@ -83,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Set up our online presence
             const statusRef = ref(database, `status/${user.uid}`);
             
-            // When we disconnect, update the status to offline
+            // When we disconnect, update the status to offline AND reset shitting status
             onDisconnect(statusRef).set(isOfflineForDatabase);
             
             // Set our status to online
@@ -98,8 +109,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (userDoc.exists()) {
           setUserData(userDoc.data() as UserData);
         }
+
+        // Listen for status changes in Realtime Database
+        const statusRef = ref(database, `status/${user.uid}`);
+        onValue(statusRef, (snapshot) => {
+          if (snapshot.exists()) {
+            setUserStatus(snapshot.val() as UserStatus);
+          }
+        });
       } else {
         setUserData(null);
+        setUserStatus(null);
       }
       
       setLoading(false);
@@ -127,9 +147,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: user.email,
         displayName: user.displayName,
         photoURL: user.photoURL,
-        isOnline: true,
-        isShitting: false,
-        lastActive: Date.now(),
         totalShits: 0,
         averageShitDuration: 0,
         totalShitDuration: 0,
@@ -142,9 +159,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Set initial status in Realtime Database
       console.log('Setting initial status in Realtime Database');
       await set(ref(database, `status/${user.uid}`), {
-        state: 'online',
-        lastChanged: Date.now(),
+        isOnline: true,
+        isShitting: false,
+        lastActive: Date.now(),
+        lastShitStartTime: null,
+        sessions: { [sessionId]: true }
       });
+      
+      // Set up disconnect handler
+      onDisconnect(ref(database, `status/${user.uid}/sessions/${sessionId}`)).remove();
       
       console.log('Registration complete');
     } catch (error: any) {
@@ -189,14 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Update status in both Firestore and Realtime Database
       const currentTime = Date.now();
       
-      // 1. Reset shitting status in Firestore
-      const userDocRef = doc(firestore, 'users', userCredential.user.uid);
-      await updateDoc(userDocRef, {
-        isShitting: false,
-        lastActive: currentTime
-      });
-      
-      // 2. Reset status in Realtime Database
+      // 1. Reset shitting status in Realtime Database
       const statusRef = ref(database, `status/${userCredential.user.uid}`);
       const statusSnapshot = await get(statusRef);
       const statusData = statusSnapshot.exists() ? statusSnapshot.val() : {};
@@ -209,7 +225,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessions: { ...(statusData.sessions || {}), [sessionId]: true }
       });
       
-      // Set up disconnect handler
+      // Set up disconnect handler to remove this session and reset status when disconnected
+      const statusResetData = {
+        isOnline: false,
+        isShitting: false,
+        lastChanged: currentTime,
+      };
+      onDisconnect(ref(database, `status/${userCredential.user.uid}`)).update(statusResetData);
       onDisconnect(ref(database, `status/${userCredential.user.uid}/sessions/${sessionId}`)).remove();
       
     } catch (error) {
@@ -238,8 +260,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Set status to offline before signing out
       if (currentUser) {
         await set(ref(database, `status/${currentUser.uid}`), {
-          state: 'offline',
-          lastChanged: Date.now(),
+          isOnline: false,
+          isShitting: false,
+          lastActive: Date.now(),
+          lastShitStartTime: null
         });
       }
       
@@ -257,64 +281,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const currentTime = Date.now();
       
-      // 1. First update the user document in Firestore
-      const userDocRef = doc(firestore, 'users', currentUser.uid);
+      // 1. Update the Realtime Database status
+      const statusRef = ref(database, `status/${currentUser.uid}`);
+      const statusSnapshot = await get(statusRef);
+      const statusData = statusSnapshot.exists() ? statusSnapshot.val() : {};
       
       if (isShitting) {
         // Starting a shit session
-        await updateDoc(userDocRef, {
+        await set(statusRef, {
+          isOnline: true,
           isShitting: true,
+          lastActive: currentTime,
           lastShitStartTime: currentTime,
+          sessions: { ...(statusData.sessions || {}), [sessionId]: true }
         });
       } else {
         // Ending a shit session
-        const userDoc = await getDoc(userDocRef);
-        const userData = userDoc.data() as UserData;
+        const currentStatus = statusSnapshot.val();
         
-        if (userData.lastShitStartTime) {
-          const shitDuration = currentTime - userData.lastShitStartTime;
+        if (currentStatus?.lastShitStartTime) {
+          const shitDuration = currentTime - currentStatus.lastShitStartTime;
+          
+          // Update statistics in Firestore
+          const userDocRef = doc(firestore, 'users', currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          const userData = userDoc.data() as UserData;
+          
           const totalShits = (userData.totalShits || 0) + 1;
           const totalShitDuration = (userData.totalShitDuration || 0) + shitDuration;
           const averageShitDuration = totalShitDuration / totalShits;
           
           await updateDoc(userDocRef, {
-            isShitting: false,
             totalShits,
             totalShitDuration,
             averageShitDuration,
           });
-        } else {
-          await updateDoc(userDocRef, {
-            isShitting: false,
-          });
         }
+        
+        // Update real-time status
+        await set(statusRef, {
+          isOnline: true,
+          isShitting: false,
+          lastActive: currentTime,
+          lastShitStartTime: null,
+          sessions: { ...(statusData.sessions || {}), [sessionId]: true }
+        });
       }
       
-      // 2. Now ALSO update the Realtime Database to stay in sync with web app
-      // Get the current status to preserve any existing sessions
-      const statusRef = ref(database, `status/${currentUser.uid}`);
-      const statusSnapshot = await get(statusRef);
-      const statusData = statusSnapshot.exists() ? statusSnapshot.val() : {};
-      
-      // Update the status with new shitting state while preserving sessions
-      await set(statusRef, {
-        isOnline: true,
-        isShitting: isShitting,
-        lastActive: currentTime,
-        lastShitStartTime: isShitting ? currentTime : null,
-        sessions: { ...(statusData.sessions || {}), [sessionId]: true },
-      });
-      
-      // Setup disconnect handler to remove this session when the app closes
+      // Setup disconnect handler to remove this session and reset status when the app closes
+      const statusResetData = {
+        isOnline: false,
+        isShitting: false,
+        lastChanged: currentTime,
+      };
+      onDisconnect(ref(database, `status/${currentUser.uid}`)).update(statusResetData);
       onDisconnect(ref(database, `status/${currentUser.uid}/sessions/${sessionId}`)).remove();
       
-      // 3. Update AsyncStorage for our app state management
+      // Update AsyncStorage for our app state management
       try {
         await AsyncStorage.setItem('@ShitApp:isShitting', isShitting ? 'true' : 'false');
         await AsyncStorage.setItem('@ShitApp:lastActiveTimestamp', currentTime.toString());
       } catch (storageError) {
         console.error('Error updating AsyncStorage:', storageError);
-        // Continue anyway - the Firebase updates are more important
       }
       
     } catch (error) {
@@ -355,7 +383,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = {
     currentUser,
-    userData,
+    userData: userData ? { 
+      ...userData, 
+      isShitting: userStatus?.isShitting || false,
+      isOnline: userStatus?.isOnline || false,
+      lastActive: userStatus?.lastActive || 0,
+      lastShitStartTime: userStatus?.lastShitStartTime || 0
+    } : null,
     loading,
     register,
     login,

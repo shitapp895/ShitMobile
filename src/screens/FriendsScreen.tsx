@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, SectionList, TouchableOpacity, TextInput, ActivityIndicator, Image, Modal, Alert, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, get } from 'firebase/database';
 import { firestore, database } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
 import { searchUsers, addFriend } from '../services/database/userService';
@@ -140,7 +140,7 @@ export default function FriendsScreen() {
             displayName: data.displayName || 'Unknown',
             photoURL: data.photoURL,
             isOnline: false, // Default to offline until we get real-time status
-            isShitting: data.isShitting || false,
+            isShitting: false // Default to not shitting, will be updated from Realtime Database
           };
         }
       }
@@ -152,16 +152,75 @@ export default function FriendsScreen() {
       friendIds.forEach((friendId: string) => {
         const statusRef = ref(database, `status/${friendId}`);
         
+        // Get initial status immediately 
+        get(statusRef).then((snapshot) => {
+          if (snapshot.exists()) {
+            const status = snapshot.val();
+            console.log(`Initial status for friend ${friendId}:`, status);
+            
+            // Explicitly check for shitting status
+            if (status?.isShitting === true) {
+              console.log(`⚠️ INITIAL CHECK: Friend ${friendId} IS SHITTING - making sure UI shows this`);
+            }
+            
+            setFriends(currentFriends => {
+              return currentFriends.map(friend => {
+                if (friend.id === friendId) {
+                  // Explicitly set shitting status for clarity
+                  const isShitting = status?.isShitting === true;
+                  
+                  const updatedFriend = {
+                    ...friend,
+                    isOnline: status?.isOnline === true,
+                    isShitting
+                  };
+                  
+                  console.log(`Initial update for ${friend.displayName}:`, {
+                    isOnline: updatedFriend.isOnline,
+                    isShitting: updatedFriend.isShitting
+                  });
+                  
+                  return updatedFriend;
+                }
+                return friend;
+              });
+            });
+          }
+        }).catch(error => {
+          console.error(`Error getting initial status for friend ${friendId}:`, error);
+        });
+        
+        // Then set up the listener for future changes
         const unsubscribe = onValue(statusRef, (snapshot) => {
           const status = snapshot.val();
+          console.log(`Status update for friend ${friendId}:`, status);
+          
+          if (status?.isShitting === true) {
+            console.log(`⚠️ IMPORTANT: Friend ${friendId} IS SHITTING - must update UI!`);
+          }
           
           setFriends(currentFriends => {
             const updatedFriends = currentFriends.map(friend => {
               if (friend.id === friendId) {
-                return {
+                // Explicitly set shitting status for clarity
+                const isShitting = status?.isShitting === true;
+                console.log(`Updating friend ${friend.displayName} status:`, {
+                  isOnline: status?.isOnline === true,
+                  isShitting
+                });
+                
+                const updatedFriend = {
                   ...friend,
-                  isOnline: status?.isOnline === true
+                  isOnline: status?.isOnline === true,
+                  isShitting
                 };
+                
+                // Print diagnostic if a friend is shitting
+                if (isShitting) {
+                  console.log(`🚽 Friend ${friend.displayName} is now shitting`);
+                }
+                
+                return updatedFriend;
               }
               return friend;
             });
@@ -182,12 +241,13 @@ export default function FriendsScreen() {
   // Use fetchFriends in the useEffect
   useEffect(() => {
     if (userData?.uid) {
-      // Only fetch friends if we're not on the requests tab
       if (activeTab !== 'requests') {
         fetchFriends();
+      } else {
+        fetchFriendRequests();
       }
     }
-  }, [userData?.uid]); // Remove activeTab from dependencies
+  }, [userData?.uid, activeTab]); // Add activeTab as dependency
 
   // Clean up listeners when component unmounts
   useEffect(() => {
@@ -200,9 +260,17 @@ export default function FriendsScreen() {
   const filteredFriends = friends.filter(friend => {
     const matchesSearch = friend.displayName.toLowerCase().includes(searchQuery.toLowerCase());
     
+    // CRITICAL DEBUGGING: Always log when in shitting tab
+    if (activeTab === 'shitting') {
+      console.log(`SHITTING TAB CHECK - Friend ${friend.displayName}: isShitting=${friend.isShitting}, will show=${friend.isShitting && matchesSearch}`);
+    }
+    
     if (activeTab === 'all') return matchesSearch;
     if (activeTab === 'online') return matchesSearch && friend.isOnline;
-    if (activeTab === 'shitting') return matchesSearch && friend.isShitting;
+    if (activeTab === 'shitting') {
+      // For shitting tab, ONLY check if they're shitting (regardless of online status)
+      return matchesSearch && (friend.isShitting === true);
+    }
     
     return matchesSearch;
   });
@@ -648,35 +716,15 @@ export default function FriendsScreen() {
     </View>
   )};
 
-  // Function to handle refresh
-  const handleRefresh = async () => {
-    if (!userData?.uid) return;
-    
+  // Handle refresh
+  const onRefresh = async () => {
     setRefreshing(true);
-    try {
-      // Create an array of promises to execute
-      const refreshPromises = [];
-      
-      // Only refresh data relevant to the active tab
-      if (activeTab === 'requests') {
-        refreshPromises.push(fetchFriendRequests());
-      } else {
-        refreshPromises.push(fetchFriends());
-      }
-      
-      // Add search results refresh if modal is open and there's a search query
-      if (addFriendsModalVisible && userSearchQuery.trim()) {
-        refreshPromises.push(handleSearchUsers());
-      }
-      
-      // Execute all refresh operations in parallel
-      await Promise.all(refreshPromises);
-    } catch (error) {
-      console.error('Error refreshing data:', error);
-      Alert.alert('Error', 'Failed to refresh data. Please try again.');
-    } finally {
-      setRefreshing(false);
+    if (activeTab !== 'requests') {
+      await fetchFriends();
+    } else {
+      await fetchFriendRequests();
     }
+    setRefreshing(false);
   };
 
   // Set up the header right button
@@ -730,6 +778,48 @@ export default function FriendsScreen() {
     </View>
   );
 
+  // Handle tab change
+  const handleTabChange = (tab: string) => {
+    console.log(`Switching to tab: ${tab}`);
+    setActiveTab(tab);
+    // Clear any search
+    setSearchQuery('');
+    
+    // When switching to shitting tab, force-check all friends' statuses
+    if (tab === 'shitting') {
+      console.log('SWITCHING TO SHITTING TAB - Current friends status:');
+      friends.forEach(friend => {
+        console.log(`- ${friend.displayName}: isShitting=${friend.isShitting}, isOnline=${friend.isOnline}`);
+      });
+      
+      // Show a summary of who is shitting
+      const shittingFriends = friends.filter(f => f.isShitting === true);
+      if (shittingFriends.length > 0) {
+        console.log(`🚽 SUMMARY: ${shittingFriends.length} friends currently shitting:`);
+        shittingFriends.forEach(f => console.log(`  - ${f.displayName}`));
+      } else {
+        console.log('❌ No friends currently shitting according to state');
+      }
+    }
+    
+    // Force a refresh when switching tabs
+    if (tab !== 'requests' && userData?.uid) {
+      console.log(`Refreshing friends for ${tab} tab`);
+      fetchFriends();
+    } else if (tab === 'requests' && userData?.uid) {
+      fetchFriendRequests();
+    }
+  }
+
+  // Log when friends list changes
+  useEffect(() => {
+    console.log('Friends list updated', {
+      count: friends.length,
+      online: friends.filter(f => f.isOnline).length,
+      shitting: friends.filter(f => f.isShitting).length
+    });
+  }, [friends]);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -753,25 +843,25 @@ export default function FriendsScreen() {
       <View style={styles.tabsContainer}>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'all' && styles.activeTab]}
-          onPress={() => setActiveTab('all')}
+          onPress={() => handleTabChange('all')}
         >
           <Text style={[styles.tabText, activeTab === 'all' && styles.activeTabText]}>All</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'online' && styles.activeTab]}
-          onPress={() => setActiveTab('online')}
+          onPress={() => handleTabChange('online')}
         >
           <Text style={[styles.tabText, activeTab === 'online' && styles.activeTabText]}>Online</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'shitting' && styles.activeTab]}
-          onPress={() => setActiveTab('shitting')}
+          onPress={() => handleTabChange('shitting')}
         >
           <Text style={[styles.tabText, activeTab === 'shitting' && styles.activeTabText]}>Shitting</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'requests' && styles.activeTab]}
-          onPress={() => setActiveTab('requests')}
+          onPress={() => handleTabChange('requests')}
         >
           <Text style={[styles.tabText, activeTab === 'requests' && styles.activeTabText]}>Requests</Text>
         </TouchableOpacity>
@@ -801,7 +891,7 @@ export default function FriendsScreen() {
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
-                onRefresh={handleRefresh}
+                onRefresh={onRefresh}
                 colors={['#6366f1']}
                 tintColor="#6366f1"
                 progressViewOffset={Platform.OS === 'ios' ? 0 : 20}
@@ -819,7 +909,7 @@ export default function FriendsScreen() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={handleRefresh}
+              onRefresh={onRefresh}
               colors={['#6366f1']}
               tintColor="#6366f1"
               progressViewOffset={Platform.OS === 'ios' ? 0 : 20}

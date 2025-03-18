@@ -17,7 +17,7 @@ A React Native Expo mobile application for connecting with acquaintances during 
 
 - Node.js (v14 or newer)
 - npm or yarn
-- Expo CLI (`npm install -g expo-cli`)
+- Expo CLI (` npm install -g expo-cli`)
 - Expo Go app on your mobile device (for testing)
 
 ### Installation
