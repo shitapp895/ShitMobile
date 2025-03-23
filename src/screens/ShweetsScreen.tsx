@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
 import { firestore, database } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,7 +13,7 @@ interface Shweet {
   authorPhotoURL: string | null;
   content: string;
   timestamp: any;
-  likes: number;
+  likes: string[]; // Array of user IDs who liked this shweet
   isShitting: boolean;
 }
 
@@ -29,6 +29,32 @@ export default function ShweetsScreen() {
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const [deletingShweetId, setDeletingShweetId] = useState<string | null>(null);
+  const [likingShweetId, setLikingShweetId] = useState<string | null>(null);
+  const [friendsList, setFriendsList] = useState<string[]>([]);
+  
+  // Fetch friends list once when component mounts
+  useEffect(() => {
+    if (userData?.uid) {
+      fetchFriendsList();
+    }
+  }, [userData?.uid]);
+  
+  // Fetch friends list 
+  const fetchFriendsList = async () => {
+    if (!userData?.uid) return;
+    
+    try {
+      const userDocRef = doc(firestore, 'users', userData.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        setFriendsList(userData.friends || []);
+      }
+    } catch (error) {
+      console.error('Error fetching friends list:', error);
+    }
+  };
   
   // Fetch shweets with real-time updates
   useEffect(() => {
@@ -42,6 +68,8 @@ export default function ShweetsScreen() {
   
   // Function to fetch shweets
   const fetchShweets = useCallback(async () => {
+    if (!userData?.uid) return;
+    
     const shweetsQuery = query(
       collection(firestore, 'tweets'),
       orderBy('timestamp', 'desc'),
@@ -59,6 +87,12 @@ export default function ShweetsScreen() {
           // Skip documents with no authorId
           if (!shweetData.authorId) continue;
           
+          // Only show shweets from friends and the user's own shweets
+          if (shweetData.authorId !== userData.uid && 
+              !friendsList.includes(shweetData.authorId)) {
+            continue;
+          }
+          
           // Get author info
           const authorDocRef = doc(firestore, 'users', shweetData.authorId);
           const authorDoc = await getDoc(authorDocRef);
@@ -71,7 +105,7 @@ export default function ShweetsScreen() {
             authorPhotoURL: authorData.photoURL || null,
             content: shweetData.content,
             timestamp: shweetData.timestamp,
-            likes: shweetData.likes || 0,
+            likes: shweetData.likes || [],
             isShitting: authorData.isShitting || false,
           };
           
@@ -96,7 +130,7 @@ export default function ShweetsScreen() {
     });
     
     return unsubscribe;
-  }, []);
+  }, [userData?.uid, friendsList]);
   
   // Setup a status listener for an individual author
   const setupStatusListener = (authorId: string, shweetsList: Shweet[]) => {
@@ -141,8 +175,7 @@ export default function ShweetsScreen() {
         authorId: userData.uid,
         content: newShweet.trim(),
         timestamp: serverTimestamp(),
-        likes: 0,
-        likedBy: [],
+        likes: [],
       });
       
       // Clear input
@@ -230,6 +263,45 @@ export default function ShweetsScreen() {
     );
   }, [shweets, userData]);
   
+  // Handle like/unlike a shweet
+  const handleLikeToggle = useCallback(async (shweetId: string) => {
+    if (!userData?.uid) return;
+    
+    setLikingShweetId(shweetId);
+    
+    try {
+      const shweetRef = doc(firestore, 'tweets', shweetId);
+      const shweetDoc = await getDoc(shweetRef);
+      
+      if (!shweetDoc.exists()) {
+        console.error('Shweet not found');
+        return;
+      }
+      
+      const shweetData = shweetDoc.data();
+      const likes = shweetData.likes || [];
+      const userHasLiked = likes.includes(userData.uid);
+      
+      if (userHasLiked) {
+        // Unlike the shweet - Firestore will update and trigger the real-time listener
+        await updateDoc(shweetRef, {
+          likes: arrayRemove(userData.uid)
+        });
+      } else {
+        // Like the shweet - Firestore will update and trigger the real-time listener
+        await updateDoc(shweetRef, {
+          likes: arrayUnion(userData.uid)
+        });
+      }
+      
+      // No need to update local state, as the real-time listener will handle it
+    } catch (error) {
+      console.error('Error toggling like:', error);
+    } finally {
+      setLikingShweetId(null);
+    }
+  }, [userData]);
+  
   // Handle refresh
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -237,6 +309,8 @@ export default function ShweetsScreen() {
     Object.values(statusListeners).forEach(unsubscribe => unsubscribe());
     // Clear listeners object
     Object.keys(statusListeners).forEach(key => delete statusListeners[key]);
+    // Fetch friends list again
+    fetchFriendsList();
     // Fetch fresh data
     fetchShweets();
   }, [fetchShweets]);
@@ -267,20 +341,38 @@ export default function ShweetsScreen() {
           </View>
         </View>
         
-        {/* Delete button - only shown for user's own shweets */}
-        {userData?.uid === item.authorId && (
+        <View style={styles.actionButtons}>
+          {/* Like button */}
           <TouchableOpacity 
-            style={styles.deleteButton}
-            onPress={() => handleDeleteShweet(item.id)}
-            disabled={deletingShweetId === item.id}
+            style={styles.likeButton}
+            onPress={() => handleLikeToggle(item.id)}
+            disabled={likingShweetId === item.id}
           >
-            {deletingShweetId === item.id ? (
-              <ActivityIndicator size="small" color="#f87171" />
-            ) : (
-              <Ionicons name="trash-outline" size={18} color="#f87171" />
-            )}
+            <View style={styles.likeContainer}>
+              <Ionicons 
+                name={item.likes.includes(userData?.uid || '') ? "heart" : "heart-outline"} 
+                size={18} 
+                color={item.likes.includes(userData?.uid || '') ? "#6366f1" : "#6b7280"} 
+              />
+              <Text style={styles.likeCount}>{item.likes.length}</Text>
+            </View>
           </TouchableOpacity>
-        )}
+          
+          {/* Delete button - only shown for user's own shweets */}
+          {userData?.uid === item.authorId && (
+            <TouchableOpacity 
+              style={styles.deleteButton}
+              onPress={() => handleDeleteShweet(item.id)}
+              disabled={deletingShweetId === item.id}
+            >
+              {deletingShweetId === item.id ? (
+                <ActivityIndicator size="small" color="#f87171" />
+              ) : (
+                <Ionicons name="trash-outline" size={18} color="#f87171" />
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       
       <Text style={styles.shweetContent}>{item.content}</Text>
@@ -294,7 +386,7 @@ export default function ShweetsScreen() {
           <TextInput
             ref={inputRef}
             style={styles.input}
-            placeholder="Send your friends a Shart..."
+            placeholder="Send your friends a Shweet..."
             multiline
             value={newShweet}
             onChangeText={setNewShweet}
@@ -488,8 +580,26 @@ const styles = StyleSheet.create({
     marginTop: 5,
     textAlign: 'center',
   },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   deleteButton: {
     padding: 8,
     borderRadius: 20,
+  },
+  likeButton: {
+    padding: 8,
+    borderRadius: 20,
+    marginRight: 5,
+  },
+  likeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  likeCount: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginLeft: 4,
   },
 }); 
