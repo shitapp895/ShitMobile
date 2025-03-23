@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
@@ -24,6 +24,7 @@ export default function ShweetsScreen() {
   const { userData } = useAuth();
   const [shweets, setShweets] = useState<Shweet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [newShweet, setNewShweet] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
@@ -31,6 +32,16 @@ export default function ShweetsScreen() {
   
   // Fetch shweets with real-time updates
   useEffect(() => {
+    fetchShweets();
+    
+    return () => {
+      // Clean up all status listeners
+      Object.values(statusListeners).forEach(unsubscribe => unsubscribe());
+    };
+  }, []);
+  
+  // Function to fetch shweets
+  const fetchShweets = useCallback(async () => {
     const shweetsQuery = query(
       collection(firestore, 'tweets'),
       orderBy('timestamp', 'desc'),
@@ -72,20 +83,19 @@ export default function ShweetsScreen() {
         
         setShweets(shweetsList);
         setLoading(false);
+        setRefreshing(false);
       } catch (error) {
         console.error('Error fetching shweets:', error);
         setLoading(false);
+        setRefreshing(false);
       }
     }, (error) => {
       console.error("Error in shweets listener:", error);
       setLoading(false);
+      setRefreshing(false);
     });
     
-    return () => {
-      unsubscribe();
-      // Clean up all status listeners
-      Object.values(statusListeners).forEach(unsubscribe => unsubscribe());
-    };
+    return unsubscribe;
   }, []);
   
   // Setup a status listener for an individual author
@@ -220,6 +230,17 @@ export default function ShweetsScreen() {
     );
   }, [shweets, userData]);
   
+  // Handle refresh
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    // Clean up existing listeners
+    Object.values(statusListeners).forEach(unsubscribe => unsubscribe());
+    // Clear listeners object
+    Object.keys(statusListeners).forEach(key => delete statusListeners[key]);
+    // Fetch fresh data
+    fetchShweets();
+  }, [fetchShweets]);
+  
   // Render a shweet
   const renderShweetItem = ({ item }: { item: Shweet }) => (
     <View style={styles.shweetCard}>
@@ -267,55 +288,62 @@ export default function ShweetsScreen() {
   );
   
   return (
-    <TouchableWithoutFeedback onPress={dismissKeyboard}>
-      <View style={styles.container}>
-        <View style={styles.composeContainer}>
-          <View style={styles.inputContainer}>
-            <TextInput
-              ref={inputRef}
-              style={styles.input}
-              placeholder="Send your friends a Shart..."
-              multiline
-              value={newShweet}
-              onChangeText={setNewShweet}
-            />
-          </View>
-          
-          <TouchableOpacity 
-            style={[
-              styles.postButton,
-              (!newShweet.trim() || submitting) && styles.disabledButton
-            ]}
-            onPress={handlePostShweet}
-            disabled={!newShweet.trim() || submitting}
-          >
-            <Text style={styles.postButtonText}>
-              {submitting ? 'Posting...' : 'Post'}
-            </Text>
-          </TouchableOpacity>
+    <View style={styles.container}>
+      <View style={styles.composeContainer}>
+        <View style={styles.inputContainer}>
+          <TextInput
+            ref={inputRef}
+            style={styles.input}
+            placeholder="Send your friends a Shart..."
+            multiline
+            value={newShweet}
+            onChangeText={setNewShweet}
+          />
         </View>
         
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6366f1" />
-            <Text style={styles.loadingText}>Loading shweets...</Text>
-          </View>
-        ) : shweets.length > 0 ? (
-          <FlatList
-            data={shweets}
-            renderItem={renderShweetItem}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.shweetsList}
-          />
-        ) : (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubble-ellipses" size={60} color="#d1d5db" />
-            <Text style={styles.emptyText}>No shweets yet</Text>
-            <Text style={styles.emptySubtext}>Be the first to share your thoughts!</Text>
-          </View>
-        )}
+        <TouchableOpacity 
+          style={[
+            styles.postButton,
+            (!newShweet.trim() || submitting) && styles.disabledButton
+          ]}
+          onPress={handlePostShweet}
+          disabled={!newShweet.trim() || submitting}
+        >
+          <Text style={styles.postButtonText}>
+            {submitting ? 'Posting...' : 'Post'}
+          </Text>
+        </TouchableOpacity>
       </View>
-    </TouchableWithoutFeedback>
+      
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.loadingText}>Loading shweets...</Text>
+        </View>
+      ) : shweets.length > 0 ? (
+        <FlatList
+          data={shweets}
+          renderItem={renderShweetItem}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.shweetsList}
+          onScrollBeginDrag={dismissKeyboard}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#6366f1']}
+              tintColor="#6366f1"
+            />
+          }
+        />
+      ) : (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="chatbubble-ellipses" size={60} color="#d1d5db" />
+          <Text style={styles.emptyText}>No shweets yet</Text>
+          <Text style={styles.emptySubtext}>Be the first to share your thoughts!</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
