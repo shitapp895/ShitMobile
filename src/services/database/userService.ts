@@ -185,4 +185,54 @@ export const getUserFriends = async (userId: string): Promise<UserData[]> => {
     console.error('Error getting user friends:', error);
     throw error;
   }
+};
+
+// Function to log and verify friend relationship between two users
+export const logFriendsRelationship = async (userId: string, friendId: string): Promise<boolean> => {
+  try {
+    console.log(`Checking friendship between user ${userId} and friend ${friendId}`);
+    
+    // Get both user documents
+    const userDocRef = doc(firestore, 'users', userId);
+    const friendDocRef = doc(firestore, 'users', friendId);
+    
+    const [userDoc, friendDoc] = await Promise.all([
+      getDoc(userDocRef),
+      getDoc(friendDocRef)
+    ]);
+    
+    if (!userDoc.exists() || !friendDoc.exists()) {
+      console.error('One or both users do not exist');
+      return false;
+    }
+    
+    const userData = userDoc.data();
+    const friendData = friendDoc.data();
+    
+    const userHasFriend = (userData.friends || []).includes(friendId);
+    const friendHasUser = (friendData.friends || []).includes(userId);
+    
+    console.log(`User has friend: ${userHasFriend}`);
+    console.log(`Friend has user: ${friendHasUser}`);
+    
+    // If relationship is one-sided, fix it
+    if (userHasFriend && !friendHasUser) {
+      console.log('Fixing one-sided friendship: adding user to friend\'s list');
+      await updateDoc(friendDocRef, {
+        friends: arrayUnion(userId)
+      });
+      return true;
+    } else if (!userHasFriend && friendHasUser) {
+      console.log('Fixing one-sided friendship: adding friend to user\'s list');
+      await updateDoc(userDocRef, {
+        friends: arrayUnion(friendId)
+      });
+      return true;
+    }
+    
+    return userHasFriend && friendHasUser;
+  } catch (error) {
+    console.error('Error checking friend relationship:', error);
+    return false;
+  }
 }; 

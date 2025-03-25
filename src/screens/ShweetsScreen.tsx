@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc, updateDoc, arrayUnion, arrayRemove, where } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
 import { firestore, database } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
+import { logFriendsRelationship } from '../services/database/userService';
 
 interface Shweet {
   id: string;
@@ -44,12 +45,18 @@ export default function ShweetsScreen() {
     if (!userData?.uid) return;
     
     try {
+      console.log(`Fetching friends list for user ${userData.uid}`);
       const userDocRef = doc(firestore, 'users', userData.uid);
       const userDoc = await getDoc(userDocRef);
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        setFriendsList(userData.friends || []);
+        console.log('User document data:', userData);
+        const friends = userData.friends || [];
+        console.log(`Friends list retrieved with ${friends.length} friends:`, friends);
+        setFriendsList(friends);
+      } else {
+        console.log('User document does not exist');
       }
     } catch (error) {
       console.error('Error fetching friends list:', error);
@@ -70,6 +77,9 @@ export default function ShweetsScreen() {
   const fetchShweets = useCallback(async () => {
     if (!userData?.uid) return;
     
+    console.log(`Fetching shweets for user ${userData.uid}`);
+    console.log('Current friends list:', friendsList);
+    
     const shweetsQuery = query(
       collection(firestore, 'tweets'),
       orderBy('timestamp', 'desc'),
@@ -79,42 +89,73 @@ export default function ShweetsScreen() {
     // Set up real-time listener for shweets
     const unsubscribe = onSnapshot(shweetsQuery, async (querySnapshot) => {
       try {
+        console.log(`Got ${querySnapshot.docs.length} shweets from Firestore`);
+        
+        // Get current shweets to maintain existing ones during update
+        const currentShweetIds = new Map(
+          shweets.map(shweet => [shweet.id, shweet])
+        );
+        
         const shweetsList: Shweet[] = [];
         
         for (const document of querySnapshot.docs) {
           const shweetData = document.data();
           
           // Skip documents with no authorId
-          if (!shweetData.authorId) continue;
+          if (!shweetData.authorId) {
+            console.log(`Skipping shweet ${document.id} - no authorId`);
+            continue;
+          }
+          
+          console.log(`Processing shweet ${document.id} by author ${shweetData.authorId}`);
           
           // Only show shweets from friends and the user's own shweets
           if (shweetData.authorId !== userData.uid && 
               !friendsList.includes(shweetData.authorId)) {
+            console.log(`Skipping shweet ${document.id} - author not in friends list`);
             continue;
           }
           
-          // Get author info
-          const authorDocRef = doc(firestore, 'users', shweetData.authorId);
-          const authorDoc = await getDoc(authorDocRef);
-          const authorData = authorDoc.exists() ? authorDoc.data() : {};
+          // Get author info - check if we already have it to avoid unnecessary fetches
+          let authorName = 'Unknown User';
+          let authorPhotoURL = null;
+          let isShitting = false;
+          
+          const existingShweet = currentShweetIds.get(document.id);
+          if (existingShweet && existingShweet.authorId === shweetData.authorId) {
+            // Reuse author info from existing shweet
+            authorName = existingShweet.authorName;
+            authorPhotoURL = existingShweet.authorPhotoURL;
+            isShitting = existingShweet.isShitting;
+          } else {
+            // Need to fetch author info
+            const authorDocRef = doc(firestore, 'users', shweetData.authorId);
+            const authorDoc = await getDoc(authorDocRef);
+            const authorData = authorDoc.exists() ? authorDoc.data() : {};
+            authorName = authorData.displayName || 'Unknown User';
+            authorPhotoURL = authorData.photoURL || null;
+            isShitting = authorData.isShitting || false;
+          }
           
           const shweet = {
             id: document.id,
             authorId: shweetData.authorId,
-            authorName: authorData.displayName || 'Unknown User',
-            authorPhotoURL: authorData.photoURL || null,
+            authorName,
+            authorPhotoURL,
             content: shweetData.content,
             timestamp: shweetData.timestamp,
             likes: shweetData.likes || [],
-            isShitting: authorData.isShitting || false,
+            isShitting,
           };
           
+          console.log(`Adding shweet ${document.id} to list`);
           shweetsList.push(shweet);
           
           // Setup individual status listeners for each author
           setupStatusListener(shweet.authorId, shweetsList);
         }
         
+        console.log(`Setting state with ${shweetsList.length} shweets`);
         setShweets(shweetsList);
         setLoading(false);
         setRefreshing(false);
@@ -130,7 +171,7 @@ export default function ShweetsScreen() {
     });
     
     return unsubscribe;
-  }, [userData?.uid, friendsList]);
+  }, [userData?.uid, friendsList, shweets]);
   
   // Setup a status listener for an individual author
   const setupStatusListener = (authorId: string, shweetsList: Shweet[]) => {
@@ -267,40 +308,84 @@ export default function ShweetsScreen() {
   const handleLikeToggle = useCallback(async (shweetId: string) => {
     if (!userData?.uid) return;
     
+    // Find the shweet in our local state
+    const shweetIndex = shweets.findIndex(s => s.id === shweetId);
+    if (shweetIndex === -1) return;
+    
+    const shweet = shweets[shweetIndex];
+    const userHasLiked = shweet.likes.includes(userData.uid);
+    
+    // Optimistically update UI
+    setShweets(currentShweets => {
+      const updatedShweets = [...currentShweets];
+      const shweetToUpdate = { ...updatedShweets[shweetIndex] };
+      
+      if (userHasLiked) {
+        // Unlike
+        shweetToUpdate.likes = shweetToUpdate.likes.filter(id => id !== userData.uid);
+      } else {
+        // Like
+        shweetToUpdate.likes = [...shweetToUpdate.likes, userData.uid];
+      }
+      
+      updatedShweets[shweetIndex] = shweetToUpdate;
+      return updatedShweets;
+    });
+    
     setLikingShweetId(shweetId);
     
     try {
       const shweetRef = doc(firestore, 'tweets', shweetId);
-      const shweetDoc = await getDoc(shweetRef);
-      
-      if (!shweetDoc.exists()) {
-        console.error('Shweet not found');
-        return;
-      }
-      
-      const shweetData = shweetDoc.data();
-      const likes = shweetData.likes || [];
-      const userHasLiked = likes.includes(userData.uid);
       
       if (userHasLiked) {
-        // Unlike the shweet - Firestore will update and trigger the real-time listener
+        // Unlike the shweet
         await updateDoc(shweetRef, {
           likes: arrayRemove(userData.uid)
         });
       } else {
-        // Like the shweet - Firestore will update and trigger the real-time listener
+        // Like the shweet
         await updateDoc(shweetRef, {
           likes: arrayUnion(userData.uid)
         });
       }
       
-      // No need to update local state, as the real-time listener will handle it
+      // No need to update local state again, as we've already done it optimistically
     } catch (error) {
       console.error('Error toggling like:', error);
+      
+      // Revert the optimistic update on error
+      setShweets(currentShweets => {
+        const updatedShweets = [...currentShweets];
+        const shweetToRevert = updatedShweets.find(s => s.id === shweetId);
+        
+        if (shweetToRevert) {
+          const index = updatedShweets.indexOf(shweetToRevert);
+          updatedShweets[index] = shweet; // Restore original shweet
+        }
+        
+        return updatedShweets;
+      });
     } finally {
       setLikingShweetId(null);
     }
-  }, [userData]);
+  }, [userData, shweets]);
+  
+  // Check and fix friend relationships if needed
+  const checkFriendRelationships = async () => {
+    if (!userData?.uid || !friendsList.length) return;
+    
+    console.log('Checking friend relationships...');
+    const fixPromises = friendsList.map(friendId => 
+      logFriendsRelationship(userData.uid!, friendId)
+    );
+    
+    try {
+      await Promise.all(fixPromises);
+      console.log('Friend relationship check completed');
+    } catch (error) {
+      console.error('Error checking friend relationships:', error);
+    }
+  };
   
   // Handle refresh
   const handleRefresh = useCallback(() => {
@@ -310,10 +395,25 @@ export default function ShweetsScreen() {
     // Clear listeners object
     Object.keys(statusListeners).forEach(key => delete statusListeners[key]);
     // Fetch friends list again
-    fetchFriendsList();
-    // Fetch fresh data
-    fetchShweets();
-  }, [fetchShweets]);
+    fetchFriendsList().then(() => {
+      // Check friend relationships
+      checkFriendRelationships().then(() => {
+        // Fetch fresh data after friends list is updated and relationships are checked
+        fetchShweets();
+      });
+    });
+  }, [fetchShweets, userData?.uid, friendsList]);
+  
+  // Add a refresh control to the FlatList
+  const renderRefreshControl = useCallback(() => {
+    return (
+      <RefreshControl
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        colors={['#10b981']} // You can use any color that matches your app theme
+      />
+    );
+  }, [refreshing, handleRefresh]);
   
   // Render a shweet
   const renderShweetItem = ({ item }: { item: Shweet }) => (
@@ -380,62 +480,48 @@ export default function ShweetsScreen() {
   );
   
   return (
-    <View style={styles.container}>
-      <View style={styles.composeContainer}>
-        <View style={styles.inputContainer}>
-          <TextInput
-            ref={inputRef}
-            style={styles.input}
-            placeholder="Send your friends a Shweet..."
-            multiline
-            value={newShweet}
-            onChangeText={setNewShweet}
-          />
+    <TouchableWithoutFeedback onPress={dismissKeyboard}>
+      <View style={styles.container}>
+        <View style={styles.composeContainer}>
+          <View style={styles.inputContainer}>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              placeholder="Send your friends a Shweet..."
+              multiline
+              value={newShweet}
+              onChangeText={setNewShweet}
+              placeholderTextColor="#9ca3af"
+            />
+            <TouchableOpacity 
+              style={styles.sendButton}
+              onPress={handlePostShweet}
+              disabled={submitting || !newShweet.trim()}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Ionicons name="send" size={20} color="#fff" />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
         
-        <TouchableOpacity 
-          style={[
-            styles.postButton,
-            (!newShweet.trim() || submitting) && styles.disabledButton
-          ]}
-          onPress={handlePostShweet}
-          disabled={!newShweet.trim() || submitting}
-        >
-          <Text style={styles.postButtonText}>
-            {submitting ? 'Posting...' : 'Post'}
-          </Text>
-        </TouchableOpacity>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#10b981" />
+          </View>
+        ) : (
+          <FlatList
+            data={shweets}
+            keyExtractor={(item) => item.id}
+            renderItem={renderShweetItem}
+            contentContainerStyle={styles.shweetsList}
+            refreshControl={renderRefreshControl()}
+          />
+        )}
       </View>
-      
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6366f1" />
-          <Text style={styles.loadingText}>Loading shweets...</Text>
-        </View>
-      ) : shweets.length > 0 ? (
-        <FlatList
-          data={shweets}
-          renderItem={renderShweetItem}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.shweetsList}
-          onScrollBeginDrag={dismissKeyboard}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={['#6366f1']}
-              tintColor="#6366f1"
-            />
-          }
-        />
-      ) : (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="chatbubble-ellipses" size={60} color="#d1d5db" />
-          <Text style={styles.emptyText}>No shweets yet</Text>
-          <Text style={styles.emptySubtext}>Be the first to share your thoughts!</Text>
-        </View>
-      )}
-    </View>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -446,34 +532,44 @@ const styles = StyleSheet.create({
   },
   composeContainer: {
     backgroundColor: '#fff',
-    padding: 15,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   inputContainer: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   input: {
-    minHeight: 60,
+    flex: 1,
+    minHeight: 40,
     fontSize: 16,
+    color: '#374151',
+    padding: 0,
   },
-  postButton: {
-    backgroundColor: '#6366f1',
+  sendButton: {
+    padding: 8,
     borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    alignSelf: 'flex-end',
-  },
-  disabledButton: {
-    backgroundColor: '#a5b4fc',
-  },
-  postButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    backgroundColor: '#6366f1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   loadingContainer: {
     flex: 1,
