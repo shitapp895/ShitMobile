@@ -273,9 +273,22 @@ export const getPendingInvites = async (userId: string): Promise<GameInvite[]> =
 // Check if a user is currently shitting
 const checkUserShittingStatus = async (userId: string): Promise<boolean> => {
   try {
+    // First check Realtime Database status
     const statusRef = ref(database, `status/${userId}`);
-    const snapshot = await get(statusRef);
-    return snapshot.exists() && snapshot.val().isShitting === true;
+    const statusSnapshot = await get(statusRef);
+    
+    if (!statusSnapshot.exists()) {
+      // If no status in Realtime Database, check Firestore
+      const userDocRef = doc(firestore, 'users', userId);
+      const userDoc = await getDoc(userDocRef);
+      if (!userDoc.exists()) return false;
+      
+      const userData = userDoc.data();
+      return userData.isShitting === true;
+    }
+    
+    const status = statusSnapshot.val();
+    return status.isShitting === true;
   } catch (error) {
     console.error('Error checking user shitting status:', error);
     return false;

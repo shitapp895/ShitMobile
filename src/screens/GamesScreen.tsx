@@ -19,7 +19,7 @@ interface GameCard {
 }
 
 export default function GamesScreen() {
-  const { userData } = useAuth();
+  const { userData, updateUserStatus } = useAuth();
   const { sendInvite, sentInvites, receivedInvites, acceptInvite, declineInvite, cancelInvite } = useGameInvites();
   const [friends, setFriends] = useState<FriendData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,22 +80,29 @@ export default function GamesScreen() {
         for (const friendId of userData.friends) {
           // Get friend's user data
           const friendDoc = await getDoc(doc(firestore, 'users', friendId));
-          if (!friendDoc.exists()) continue;
+          if (!friendDoc.exists()) {
+            console.log(`Friend document not found for ID: ${friendId}`);
+            continue;
+          }
 
           const friendUserData = friendDoc.data();
+          console.log(`Friend data for ${friendId}:`, friendUserData);
           
           // Get friend's status
           const statusRef = ref(database, `status/${friendId}`);
           const statusSnapshot = await get(statusRef);
           const status = statusSnapshot.val() || {};
+          console.log(`Friend status for ${friendId}:`, status);
           
           if (status.isShitting) {
-            friendsData.push({
+            const friendData = {
               id: friendId,
               displayName: friendUserData.displayName || 'Unknown User',
               photoURL: friendUserData.photoURL,
               isShitting: true
-            });
+            };
+            console.log(`Adding friend to list:`, friendData);
+            friendsData.push(friendData);
           }
         }
         
@@ -112,25 +119,51 @@ export default function GamesScreen() {
     // Set up real-time listeners for friend status
     const statusListeners = userData?.friends?.map(friendId => {
       const statusRef = ref(database, `status/${friendId}`);
-      return onValue(statusRef, (snapshot) => {
+      return onValue(statusRef, async (snapshot) => {
         const status = snapshot.val() || {};
-        setFriends(prevFriends => {
-          if (status.isShitting) {
-            // Add friend if not already in the list
+        
+        if (status.isShitting) {
+          // Need to fetch user data if the friend is not already in the list
+          setFriends(prevFriends => {
+            // Check if friend is already in the list
             if (!prevFriends.find(f => f.id === friendId)) {
+              // We'll add a temporary entry with just the ID and isShitting status
+              // The fetchFriendData function below will update with the full data
               return [...prevFriends, {
                 id: friendId,
-                displayName: prevFriends.find(f => f.id === friendId)?.displayName || 'Unknown User',
-                photoURL: prevFriends.find(f => f.id === friendId)?.photoURL || null,
+                displayName: 'Loading...',
+                photoURL: null,
                 isShitting: true
               }];
             }
-          } else {
-            // Remove friend if they're no longer shitting
-            return prevFriends.filter(f => f.id !== friendId);
+            return prevFriends;
+          });
+          
+          // Fetch complete friend data from Firestore
+          try {
+            const friendDoc = await getDoc(doc(firestore, 'users', friendId));
+            if (friendDoc.exists()) {
+              const friendUserData = friendDoc.data();
+              console.log(`Real-time update: Fetched friend data for ${friendId}:`, friendUserData);
+              
+              // Update friends list with complete data
+              setFriends(prevFriends => {
+                return prevFriends.map(friend => 
+                  friend.id === friendId ? {
+                    ...friend,
+                    displayName: friendUserData.displayName || 'Unknown User',
+                    photoURL: friendUserData.photoURL,
+                  } : friend
+                );
+              });
+            }
+          } catch (error) {
+            console.error(`Error fetching data for friend ${friendId}:`, error);
           }
-          return prevFriends;
-        });
+        } else {
+          // Remove friend if they're no longer shitting
+          setFriends(prevFriends => prevFriends.filter(f => f.id !== friendId));
+        }
       });
     });
 
@@ -207,9 +240,15 @@ export default function GamesScreen() {
 
   // Handle sending game invite
   const handleSendInvite = async (friendId: string) => {
-    if (!selectedGame) return;
+    if (!selectedGame || !userData) return;
 
     try {
+      // First, set user's status to shitting if they're not already
+      if (!userData.isShitting) {
+        console.log('Setting user status to shitting before sending invite');
+        await updateUserStatus(true);
+      }
+
       console.log('Sending game invite to friend:', friendId, 'for game:', selectedGame.id);
       await sendInvite(friendId, selectedGame.id as 'tictactoe');
       setShowInviteModal(false);
