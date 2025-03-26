@@ -13,7 +13,7 @@ import { firestore } from '../../firebase/config';
 import { getRandomWord } from './wordService';
 
 // Types
-export type GameType = 'tictactoe' | 'rps' | 'wordle' | 'hangman';
+export type GameType = 'tictactoe' | 'rps' | 'wordle' | 'hangman' | 'memory';
 
 export interface BaseGame {
   id?: string;
@@ -72,7 +72,19 @@ export interface HangmanGame extends BaseGame {
   };
 }
 
-export type Game = TicTacToeGame | RPSGame | WordleGame | HangmanGame;
+export interface MemoryGame extends BaseGame {
+  type: 'memory';
+  cards: string[];          // Array of emoji values on cards
+  flippedCards: number[];   // Currently flipped cards (no match yet)
+  matchedPairs: number[];   // Indices of cards that have been matched
+  scores: {                 // Score for each player
+    [playerId: string]: number;
+  };
+  lastFlip?: number;        // Index of the last flipped card
+  locked?: boolean;         // Whether the game is locked during card reveal
+}
+
+export type Game = TicTacToeGame | RPSGame | WordleGame | HangmanGame | MemoryGame;
 
 // Collection reference
 const gamesCollection = collection(firestore, 'games');
@@ -121,6 +133,16 @@ const convertGameDoc = (doc: QueryDocumentSnapshot<DocumentData>): Game => {
         guessedLetters: data.guessedLetters,
         remainingLives: data.remainingLives,
         finishedGuessing: data.finishedGuessing
+      };
+    case 'memory':
+      return {
+        ...baseGame,
+        type: 'memory',
+        cards: data.cards,
+        flippedCards: data.flippedCards,
+        matchedPairs: data.matchedPairs,
+        scores: data.scores,
+        lastFlip: data.lastFlip
       };
     default:
       throw new Error(`Unknown game type: ${data.type}`);
@@ -198,6 +220,34 @@ export const createGame = async (
           ...acc,
           [player]: false
         }), {})
+      };
+      break;
+    case 'memory':
+      // Generate pairs for memory game (8 pairs for 16 cards - 4x4 grid)
+      const poop_emojis = [
+        '💩', '🧻', '🚽', '🧼', '🧴', '🚿', '🛁', '🪠'
+      ];
+      
+      // Create pairs (duplicate each emoji)
+      const pairs = [...poop_emojis, ...poop_emojis];
+      
+      // Shuffle using Fisher-Yates algorithm
+      const shuffledCards = [...pairs];
+      for (let i = shuffledCards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledCards[i], shuffledCards[j]] = [shuffledCards[j], shuffledCards[i]];
+      }
+      
+      gameData = {
+        ...gameData,
+        cards: shuffledCards,
+        flippedCards: [],
+        matchedPairs: [],
+        scores: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: 0
+        }), {}),
+        lastFlip: null
       };
       break;
   }
@@ -384,6 +434,119 @@ export const makeMove = async (gameId: string, playerId: string, move: any): Pro
       return; // EXIT FUNCTION
     }
 
+    // SPECIAL CASE FOR MEMORY GAME
+    if (game.type === 'memory') {
+      const memoryGame = game as MemoryGame;
+      const cardIndex = move as number;
+      
+      // Check if game is locked during card reveal
+      if (memoryGame.locked) {
+        throw new Error('Game is locked during card reveal');
+      }
+      
+      // Validate move
+      if (cardIndex < 0 || cardIndex >= memoryGame.cards.length) {
+        throw new Error('Invalid card index');
+      }
+      
+      // Ensure arrays are initialized
+      const currentFlippedCards = memoryGame.flippedCards || [];
+      const currentMatchedPairs = memoryGame.matchedPairs || [];
+      
+      // Check if the card is already flipped or matched
+      if (currentFlippedCards.includes(cardIndex) || currentMatchedPairs.includes(cardIndex)) {
+        throw new Error('Card already flipped or matched');
+      }
+      
+      const updates: any = {
+        lastUpdated: Timestamp.now()
+      };
+      
+      // Add the card to flipped cards
+      const newFlippedCards = [...currentFlippedCards, cardIndex];
+      updates.flippedCards = newFlippedCards;
+      updates.lastFlip = cardIndex;
+      
+      // Check if this is the second card flipped
+      if (newFlippedCards.length === 2) {
+        const [firstCard, secondCard] = newFlippedCards;
+        
+        // Check if cards match (have the same emoji)
+        if (memoryGame.cards[firstCard] === memoryGame.cards[secondCard]) {
+          // Match found! Add both cards to matchedPairs
+          updates.matchedPairs = [...currentMatchedPairs, firstCard, secondCard];
+          // Clear flipped cards
+          updates.flippedCards = [];
+          // Increment player's score
+          updates.scores = {
+            ...(memoryGame.scores || {}),
+            [playerId]: (memoryGame.scores?.[playerId] || 0) + 1
+          };
+          
+          // Player gets another turn for finding a match
+          updates.currentTurn = playerId;
+          
+          // Check if all pairs have been found (game over)
+          if ((currentMatchedPairs.length + 2) === memoryGame.cards.length) {
+            updates.status = 'completed';
+            
+            // Determine winner based on scores
+            const players = Object.keys(memoryGame.scores || {});
+            const player1Score = memoryGame.scores?.[players[0]] || 0;
+            const player2Score = memoryGame.scores?.[players[1]] || 0;
+            
+            if (player1Score > player2Score) {
+              updates.winner = players[0];
+            } else if (player2Score > player1Score) {
+              updates.winner = players[1];
+            } else {
+              updates.winner = 'draw';
+            }
+          }
+        } else {
+          // No match - Lock the game during card reveal
+          updates.locked = true;
+          
+          // Store the next player in a temporary field to use after the delay
+          const otherPlayer = game.players.find(p => p !== playerId);
+          if (otherPlayer) {
+            updates.nextTurn = otherPlayer;
+          }
+          
+          // Update the document with both cards flipped and game locked
+          await updateDoc(gameRef, updates);
+          
+          // Use a timeout to flip the cards back and switch turns
+          setTimeout(async () => {
+            try {
+              console.log('Memory game: Flipping cards back and switching turns');
+              // Then update again to clear the flipped cards, unlock the game, and switch turns
+              await updateDoc(gameRef, {
+                flippedCards: [], // Important: Clear flipped cards to flip them back
+                locked: false,
+                currentTurn: updates.nextTurn || otherPlayer,
+                nextTurn: null,
+                lastUpdated: Timestamp.now()
+              });
+            } catch (error) {
+              console.error('Error updating game after delay:', error);
+              // Failsafe
+              await updateDoc(gameRef, { 
+                flippedCards: [], 
+                locked: false,
+                currentTurn: updates.nextTurn || otherPlayer
+              });
+            }
+          }, 3000);
+          
+          return;
+        }
+      }
+      
+      await updateDoc(gameRef, updates);
+      return;
+    }
+
     let updates: any = {
       lastUpdated: Timestamp.now()
     };
@@ -463,7 +626,7 @@ export const makeMove = async (gameId: string, playerId: string, move: any): Pro
         break;
     }
     
-    // Update the game (only for non-hangman games)
+    // Update the game (only for non-hangman and non-memory games)
     await updateDoc(gameRef, updates);
   } catch (error) {
     console.error('Error making move:', error);

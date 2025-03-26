@@ -61,6 +61,13 @@ export default function GamesScreen() {
       description: 'Guess the bathroom-themed word in 6 tries',
       icon: 'text',
       color: '#f59e0b',
+    },
+    {
+      id: 'memory',
+      title: 'Memory Match',
+      description: 'Find matching pairs of poop-themed cards',
+      icon: 'copy',
+      color: '#8b5cf6',
     }
   ];
 
@@ -248,7 +255,7 @@ export default function GamesScreen() {
     if (!selectedGame || !userData) return;
     
     // Prevent inviting to coming soon games
-    if (selectedGame.id === 'turdle') {
+    if (selectedGame.id === 'turdle' || selectedGame.id === 'memory') {
       Alert.alert('Coming Soon', 'This game is not yet available.');
       setShowInviteModal(false);
       return;

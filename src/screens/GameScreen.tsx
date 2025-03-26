@@ -10,6 +10,7 @@ import WordleGame from '../components/WordleGame';
 import TicTacToeGame from '../components/TicTacToeGame';
 import RPSGame from '../components/RPSGame';
 import HangmanGame from '../components/HangmanGame';
+import MemoryGame from '../components/MemoryGame';
 
 export default function GameScreen() {
   const route = useRoute();
@@ -126,6 +127,18 @@ export default function GameScreen() {
     return null;
   }
 
+  if (game?.type === 'memory') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.comingSoonContainer}>
+          <Text style={styles.comingSoonTitle}>Coming Soon</Text>
+          <Text style={styles.comingSoonText}>The Memory Match game is currently under development.</Text>
+          <Text style={styles.comingSoonText}>Check back later!</Text>
+        </View>
+      </View>
+    );
+  }
+
   if (!game) {
     return (
       <View style={styles.container}>
@@ -188,6 +201,7 @@ export default function GameScreen() {
             {gameType === 'tictactoe' ? 'Tic Tac Toe' :
              gameType === 'rps' ? 'Rock Paper Scissors' :
              gameType === 'hangman' ? 'Toilet Hangman' :
+             gameType === 'memory' ? 'Memory Game' :
              'Game'}
           </Text>
           <Text style={styles.opponentName}>vs {opponentName}</Text>
@@ -217,6 +231,13 @@ export default function GameScreen() {
       )}
       {game.type === 'hangman' && (
         <HangmanGame
+          game={game as any}
+          onMove={handleMove}
+          disabled={isDisabled}
+        />
+      )}
+      {game.type === 'memory' && (
+        <MemoryGame
           game={game as any}
           onMove={handleMove}
           disabled={isDisabled}
@@ -437,5 +458,23 @@ const styles = StyleSheet.create({
   placeholderText: {
     color: '#94a3b8',
     fontSize: 18,
+  },
+  comingSoonContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  comingSoonTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    color: '#8b5cf6',
+  },
+  comingSoonText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#4b5563',
   },
 }); 
