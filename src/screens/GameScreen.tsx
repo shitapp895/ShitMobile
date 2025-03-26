@@ -21,6 +21,15 @@ export default function GameScreen() {
 
   const { gameId, gameType } = route.params as { gameId: string; gameType: string };
 
+  // Prevent access to Wordle (now renamed to Turdle) as it's in "Coming Soon"
+  useEffect(() => {
+    if (gameType === 'wordle') {
+      Alert.alert('Coming Soon', 'Turdle is not available yet. Stay tuned!');
+      navigation.goBack();
+      return;
+    }
+  }, [gameType, navigation]);
+
   const handleQuitGame = () => {
     Alert.alert(
       'Quit Game',
@@ -47,6 +56,9 @@ export default function GameScreen() {
   };
 
   useEffect(() => {
+    // Skip setup if game type is wordle (will navigate away)
+    if (gameType === 'wordle') return;
+    
     const setupGame = async () => {
       try {
         // Subscribe to game updates
@@ -95,7 +107,7 @@ export default function GameScreen() {
         unsubscribeRef.current();
       }
     };
-  }, [gameId, userData?.uid]);
+  }, [gameId, userData?.uid, gameType, navigation]);
 
   const handleMove = async (move: any) => {
     if (!game || game.status !== 'active' || !userData?.uid) {
@@ -108,6 +120,11 @@ export default function GameScreen() {
       console.error('Error making move:', error);
     }
   };
+
+  // If game type is wordle, we should have already redirected
+  if (gameType === 'wordle') {
+    return null;
+  }
 
   if (!game) {
     return (
@@ -154,7 +171,6 @@ export default function GameScreen() {
           <Text style={styles.gameTitle}>
             {gameType === 'tictactoe' ? 'Tic Tac Toe' :
              gameType === 'rps' ? 'Rock Paper Scissors' :
-             gameType === 'wordle' ? 'Toilet Wordle' :
              gameType === 'hangman' ? 'Toilet Hangman' :
              'Game'}
           </Text>
@@ -181,12 +197,6 @@ export default function GameScreen() {
           onMove={handleMove}
           disabled={isDisabled}
           userId={userData.uid}
-        />
-      )}
-      {game.type === 'wordle' && (
-        <WordleGame
-          game={game}
-          onQuit={handleQuitGame}
         />
       )}
       {game.type === 'hangman' && (

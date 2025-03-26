@@ -45,13 +45,6 @@ export default function GamesScreen() {
       color: '#6366f1',
     },
     {
-      id: 'wordle',
-      title: 'Toilet Wordle',
-      description: 'Guess the bathroom-themed word in 6 tries',
-      icon: 'text',
-      color: '#f59e0b',
-    },
-    {
       id: 'hangman',
       title: 'Hangman',
       description: 'Guess the word before you run out of toilet paper',
@@ -60,8 +53,20 @@ export default function GamesScreen() {
     },
   ];
 
+  // Coming soon games
+  const comingSoonGames: GameCard[] = [
+    {
+      id: 'turdle',
+      title: 'Turdle',
+      description: 'Guess the bathroom-themed word in 6 tries',
+      icon: 'text',
+      color: '#f59e0b',
+    }
+  ];
+
   const getGameDisplayName = (gameType: string): string => {
-    const game = games.find(g => g.id === gameType);
+    if (gameType === 'wordle') return 'Turdle';
+    const game = games.find(g => g.id === gameType) || comingSoonGames.find(g => g.id === gameType);
     return game ? game.title : gameType;
   };
 
@@ -241,6 +246,13 @@ export default function GamesScreen() {
   // Handle sending game invite
   const handleSendInvite = async (friendId: string) => {
     if (!selectedGame || !userData) return;
+    
+    // Prevent inviting to coming soon games
+    if (selectedGame.id === 'turdle') {
+      Alert.alert('Coming Soon', 'This game is not yet available.');
+      setShowInviteModal(false);
+      return;
+    }
 
     try {
       // First, set user's status to shitting if they're not already
@@ -304,6 +316,27 @@ export default function GamesScreen() {
       
       <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
     </TouchableOpacity>
+  );
+
+  // Render a coming soon game card
+  const renderComingSoonCard = (game: GameCard) => (
+    <View 
+      key={game.id}
+      style={[styles.gameCard, styles.comingSoonCard]}
+    >
+      <View style={[styles.gameIconContainer, { backgroundColor: game.color }]}>
+        <Ionicons name={game.icon as any} size={32} color="#fff" />
+      </View>
+      
+      <View style={styles.gameInfo}>
+        <Text style={styles.gameTitle}>{game.title}</Text>
+        <Text style={styles.gameDescription}>{game.description}</Text>
+      </View>
+      
+      <View style={styles.comingSoonBadge}>
+        <Text style={styles.comingSoonText}>Coming Soon</Text>
+      </View>
+    </View>
   );
 
   // Render a friend item in the invite modal
@@ -433,6 +466,11 @@ export default function GamesScreen() {
         <View style={styles.gamesSection}>
           <Text style={styles.sectionTitle}>Available Games</Text>
           {games.map(renderGameCard)}
+        </View>
+        
+        <View style={styles.gamesSection}>
+          <Text style={styles.sectionTitle}>Coming Soon</Text>
+          {comingSoonGames.map(renderComingSoonCard)}
         </View>
       </ScrollView>
 
@@ -743,5 +781,20 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  comingSoonCard: {
+    opacity: 0.8,
+  },
+  comingSoonBadge: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginLeft: 'auto',
+  },
+  comingSoonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 }); 
