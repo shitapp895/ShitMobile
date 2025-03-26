@@ -54,7 +54,7 @@ export default function GamesScreen() {
     {
       id: 'hangman',
       title: 'Hangman',
-      description: 'Guess the word before the toilet flushes',
+      description: 'Guess the word before you run out of toilet paper',
       icon: 'man',
       color: '#ef4444',
     },

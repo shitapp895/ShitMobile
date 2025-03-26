@@ -58,10 +58,18 @@ export interface WordleGame extends BaseGame {
 
 export interface HangmanGame extends BaseGame {
   type: 'hangman';
-  word: string;
-  guessedLetters: string[];
-  remainingGuesses: number;
-  displayWord: string;
+  words: {
+    [playerId: string]: string;
+  };
+  guessedLetters: {
+    [playerId: string]: string[];
+  };
+  remainingLives: {
+    [playerId: string]: number;
+  };
+  finishedGuessing: {
+    [playerId: string]: boolean;
+  };
 }
 
 export type Game = TicTacToeGame | RPSGame | WordleGame | HangmanGame;
@@ -109,10 +117,10 @@ const convertGameDoc = (doc: QueryDocumentSnapshot<DocumentData>): Game => {
       return {
         ...baseGame,
         type: 'hangman',
-        word: data.word,
+        words: data.words,
         guessedLetters: data.guessedLetters,
-        remainingGuesses: data.remainingGuesses,
-        displayWord: data.displayWord
+        remainingLives: data.remainingLives,
+        finishedGuessing: data.finishedGuessing
       };
     default:
       throw new Error(`Unknown game type: ${data.type}`);
@@ -172,7 +180,25 @@ export const createGame = async (
       };
       break;
     case 'hangman':
-      // ... existing hangman case ...
+      gameData = {
+        ...gameData,
+        words: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: getRandomWord()
+        }), {}),
+        guessedLetters: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: []
+        }), {}),
+        remainingLives: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: 6
+        }), {}),
+        finishedGuessing: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: false
+        }), {})
+      };
       break;
   }
 
@@ -212,6 +238,150 @@ export const makeMove = async (gameId: string, playerId: string, move: any): Pro
     // Check if it's the player's turn (skip for RPS)
     if (game.type !== 'rps' && game.currentTurn !== playerId) {
       throw new Error('Not your turn');
+    }
+
+    // SPECIAL CASE FOR HANGMAN - handle separately
+    if (game.type === 'hangman') {
+      const hangmanGame = game as HangmanGame;
+      const letter = move.toUpperCase();
+      
+      // Check if letter is valid
+      if (!/^[A-Z]$/.test(letter)) {
+        throw new Error('Invalid letter');
+      }
+      
+      // Get player's word and currently guessed letters
+      const playerWord = hangmanGame.words?.[playerId];
+      if (!playerWord) {
+        throw new Error('Word not found for player');
+      }
+      
+      const playerGuessedLetters = [...(hangmanGame.guessedLetters?.[playerId] || [])];
+      
+      // Check if letter was already guessed
+      if (playerGuessedLetters.includes(letter)) {
+        throw new Error('Letter already guessed');
+      }
+      
+      // Add letter to guessed letters
+      playerGuessedLetters.push(letter);
+      
+      // Prepare the updates
+      const updates: any = {
+        lastUpdated: Timestamp.now(),
+        guessedLetters: {
+          ...(hangmanGame.guessedLetters || {}),
+          [playerId]: playerGuessedLetters
+        }
+      };
+      
+      // Check if letter is in the word
+      if (!playerWord.includes(letter)) {
+        // Decrease remaining lives
+        const currentLives = hangmanGame.remainingLives?.[playerId] || 6;
+        const newRemainingLives = currentLives - 1;
+        updates.remainingLives = {
+          ...(hangmanGame.remainingLives || {}),
+          [playerId]: newRemainingLives
+        };
+      }
+      
+      // Get opponent ID
+      const opponentId = game.players.find(p => p !== playerId);
+      if (!opponentId) {
+        throw new Error('Opponent not found');
+      }
+      
+      // Check if player has completed their word
+      const uniqueLettersInWord = [...new Set(playerWord.split(''))];
+      const hasGuessedAllLetters = uniqueLettersInWord.every(l => playerGuessedLetters.includes(l));
+      
+      // Check if player has run out of lives
+      const playerCurrentLives = updates.remainingLives?.[playerId] ?? hangmanGame.remainingLives?.[playerId] ?? 0;
+      const hasRunOutOfLives = playerCurrentLives <= 0;
+      
+      // Mark player as finished if they've guessed all letters or run out of lives
+      const playerJustFinished = (hasGuessedAllLetters || hasRunOutOfLives);
+      if (playerJustFinished) {
+        updates.finishedGuessing = {
+          ...(hangmanGame.finishedGuessing || {}),
+          [playerId]: true
+        };
+      }
+      
+      // Current status
+      const playerNowFinished = playerJustFinished || hangmanGame.finishedGuessing?.[playerId] || false;
+      const opponentFinished = hangmanGame.finishedGuessing?.[opponentId] || false;
+      const opponentLives = hangmanGame.remainingLives?.[opponentId] ?? 0;
+      
+      // DECISION LOGIC FOR TURN AND GAME STATUS
+      
+      // CASE 1: Both players finished - game over
+      if (playerNowFinished && opponentFinished) {
+        updates.status = 'completed';
+        
+        if (playerCurrentLives > opponentLives) {
+          updates.winner = playerId;
+        } else if (opponentLives > playerCurrentLives) {
+          updates.winner = opponentId;
+        } else {
+          updates.winner = 'draw';
+        }
+        
+        await updateDoc(gameRef, updates);
+        return; // EXIT FUNCTION
+      }
+      
+      // CASE 2: Player just finished, opponent has lesser lives
+      if (playerJustFinished && !opponentFinished && opponentLives < playerCurrentLives) {
+        updates.status = 'completed';
+        updates.winner = playerId;
+        await updateDoc(gameRef, updates);
+        return; // EXIT FUNCTION
+      }
+      
+      // CASE 3: Player just finished, opponent has equal or more lives
+      if (playerJustFinished && !opponentFinished && opponentLives >= playerCurrentLives) {
+        updates.currentTurn = opponentId;
+        await updateDoc(gameRef, updates);
+        return; // EXIT FUNCTION
+      }
+      
+      // CASE 4: Opponent already finished, player hasn't
+      if (!playerNowFinished && opponentFinished) {
+        // Player has fewer lives - opponent wins
+        if (playerCurrentLives < opponentLives) {
+          updates.status = 'completed';
+          updates.winner = opponentId;
+        } else {
+          // CRITICAL: Keep turn with player - they still have a chance
+          updates.currentTurn = playerId;
+        }
+        await updateDoc(gameRef, updates);
+        return; // EXIT FUNCTION
+      }
+      
+      // CASE 5: Neither finished - normal turn switch
+      if (!playerNowFinished && !opponentFinished) {
+        // Check if opponent has no lives - mark them as finished
+        if (opponentLives <= 0) {
+          updates.finishedGuessing = {
+            ...(updates.finishedGuessing || {}),
+            [opponentId]: true
+          };
+          // Keep turn with current player
+          updates.currentTurn = playerId;
+        } else {
+          // Normal alternating turns
+          updates.currentTurn = opponentId;
+        }
+        await updateDoc(gameRef, updates);
+        return; // EXIT FUNCTION
+      }
+      
+      // Failsafe - shouldn't get here but just in case
+      await updateDoc(gameRef, updates);
+      return; // EXIT FUNCTION
     }
 
     let updates: any = {
@@ -284,37 +454,16 @@ export const makeMove = async (gameId: string, playerId: string, move: any): Pro
         }
 
         // Check for winner
-        const wordleWinner = determineWordleWinner({
-          ...game,
-          playerGuesses: updates.playerGuesses,
-          finishTimes: updates.finishTimes || game.finishTimes
-        } as WordleGame);
+        const wordleWinner = determineWordleWinner(game as WordleGame);
 
         if (wordleWinner) {
           updates.status = 'completed';
           updates.winner = wordleWinner;
         }
         break;
-
-      case 'hangman':
-        // Add the letter to guessed letters
-        updates.guessedLetters = [...game.guessedLetters, move];
-        
-        // Update the display word
-        const newDisplayWord = updateDisplayWord(game.word, [...game.guessedLetters, move]);
-        updates.displayWord = newDisplayWord;
-        
-        // Check if the word is complete or if no guesses left
-        if (newDisplayWord === game.word || game.remainingGuesses <= 1) {
-          updates.status = 'completed';
-          updates.winner = newDisplayWord === game.word ? playerId : 'draw';
-        } else {
-          updates.remainingGuesses = game.remainingGuesses - 1;
-        }
-        break;
     }
     
-    // Update the game
+    // Update the game (only for non-hangman games)
     await updateDoc(gameRef, updates);
   } catch (error) {
     console.error('Error making move:', error);
@@ -345,14 +494,6 @@ const determineRPSWinner = (choices: { [key: string]: 'poop' | 'toilet_paper' | 
   }
 
   return player2;
-};
-
-// Helper function to update Hangman display word
-const updateDisplayWord = (word: string, guessedLetters: string[]): string => {
-  return word
-    .split('')
-    .map(letter => guessedLetters.includes(letter) ? letter : '_')
-    .join('');
 };
 
 // Subscribe to game updates
@@ -408,33 +549,31 @@ export const abandonGame = async (gameId: string): Promise<void> => {
   }
 };
 
-// Helper function to evaluate a Wordle guess
+// Helper for evaluating Wordle guesses
 const evaluateWordleGuess = (guess: string, targetWord: string): { greens: number[], yellows: number[] } => {
-  const greens: number[] = [];
-  const yellows: number[] = [];
-  const targetLetters = targetWord.split('');
-  const guessLetters = guess.split('');
-
-  // First pass: Find green matches
-  guessLetters.forEach((letter, index) => {
-    if (letter === targetLetters[index]) {
-      greens.push(index);
-      targetLetters[index] = '#'; // Mark as used
-      guessLetters[index] = '*'; // Mark as matched
+  const result = { greens: [] as number[], yellows: [] as number[] };
+  const targetChars = targetWord.split('');
+  
+  // First pass: find direct matches (greens)
+  for (let i = 0; i < guess.length; i++) {
+    if (guess[i] === targetChars[i]) {
+      result.greens.push(i);
+      targetChars[i] = '#'; // Mark as used
     }
-  });
-
-  // Second pass: Find yellow matches
-  guessLetters.forEach((letter, index) => {
-    if (letter === '*') return; // Skip already matched letters
-    const targetIndex = targetLetters.findIndex(t => t === letter);
-    if (targetIndex !== -1) {
-      yellows.push(index);
-      targetLetters[targetIndex] = '#'; // Mark as used
+  }
+  
+  // Second pass: find partial matches (yellows)
+  for (let i = 0; i < guess.length; i++) {
+    if (!result.greens.includes(i)) {
+      const targetIndex = targetChars.indexOf(guess[i]);
+      if (targetIndex !== -1) {
+        result.yellows.push(i);
+        targetChars[targetIndex] = '#'; // Mark as used
+      }
     }
-  });
-
-  return { greens, yellows };
+  }
+  
+  return result;
 };
 
 // Helper function to determine Wordle winner

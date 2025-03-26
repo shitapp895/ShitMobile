@@ -7,97 +7,9 @@ import { doc, getDoc } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import WordleGame from '../components/WordleGame';
-
-// Game Components
-const TicTacToeGame: React.FC<{
-  game: Game;
-  onMove: (position: number) => void;
-  disabled: boolean;
-}> = ({ game, onMove, disabled }) => {
-  if (game.type !== 'tictactoe') return null;
-
-  const isFirstPlayer = (cellValue: string | null) => cellValue === game.players[0];
-
-  return (
-    <View style={styles.board}>
-      {game.board.map((cell, index) => (
-        <TouchableOpacity
-          key={index}
-          style={styles.cell}
-          onPress={() => onMove(index)}
-          disabled={cell !== null || disabled}
-        >
-          <Text style={styles.cellText}>
-            {cell === null ? '' : isFirstPlayer(cell) ? '💩' : '🧻'}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-};
-
-const RPSGame: React.FC<{
-  game: Game;
-  onMove: (choice: 'poop' | 'toilet_paper' | 'plunger') => void;
-  disabled: boolean;
-  userId: string;
-}> = ({ game, onMove, disabled, userId }) => {
-  if (game.type !== 'rps') return null;
-
-  const choices = [
-    { id: 'poop', emoji: '💩', label: 'Poop' },
-    { id: 'toilet_paper', emoji: '🧻', label: 'Toilet Paper' },
-    { id: 'plunger', emoji: '🔧', label: 'Plunger' }
-  ];
-
-  const playerChoice = game.choices[userId];
-  const bothChose = game.players.every(p => game.choices[p] !== null);
-  const opponentChoice = bothChose ? game.choices[game.players.find(p => p !== userId)!] : null;
-
-  return (
-    <View style={styles.rpsContainer}>
-      {choices.map((choice) => {
-        const isSelected = playerChoice === choice.id;
-        const isDisabled = disabled || playerChoice !== null;
-        const showOpponentChoice = bothChose && opponentChoice === choice.id;
-
-        return (
-          <TouchableOpacity
-            key={choice.id}
-            style={[
-              styles.rpsButton,
-              isSelected && styles.rpsButtonSelected,
-              showOpponentChoice && styles.rpsButtonOpponent
-            ]}
-            onPress={() => onMove(choice.id as any)}
-            disabled={isDisabled}
-          >
-            <Text style={styles.rpsEmoji}>{choice.emoji}</Text>
-            <Text style={styles.rpsLabel}>{choice.label}</Text>
-            {showOpponentChoice && (
-              <Text style={styles.rpsOpponentLabel}>Opponent's Choice</Text>
-            )}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-};
-
-const HangmanGame: React.FC<{
-  game: Game;
-  onMove: (letter: string) => void;
-  disabled: boolean;
-}> = ({ game, onMove, disabled }) => {
-  if (game.type !== 'hangman') return null;
-
-  return (
-    <View style={styles.hangmanContainer}>
-      {/* TODO: Implement Hangman UI */}
-      <Text style={styles.placeholderText}>Hangman Coming Soon</Text>
-    </View>
-  );
-};
+import TicTacToeGame from '../components/TicTacToeGame';
+import RPSGame from '../components/RPSGame';
+import HangmanGame from '../components/HangmanGame';
 
 export default function GameScreen() {
   const route = useRoute();
@@ -243,7 +155,8 @@ export default function GameScreen() {
             {gameType === 'tictactoe' ? 'Tic Tac Toe' :
              gameType === 'rps' ? 'Rock Paper Scissors' :
              gameType === 'wordle' ? 'Toilet Wordle' :
-             'Hangman'}
+             gameType === 'hangman' ? 'Toilet Hangman' :
+             'Game'}
           </Text>
           <Text style={styles.opponentName}>vs {opponentName}</Text>
           <TouchableOpacity 
@@ -278,7 +191,7 @@ export default function GameScreen() {
       )}
       {game.type === 'hangman' && (
         <HangmanGame
-          game={game}
+          game={game as any}
           onMove={handleMove}
           disabled={isDisabled}
         />

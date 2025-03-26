@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, useWindowDimensions } from 'react-native';
 import { WordleGame as WordleGameType } from '../services/database/gameService';
 import { useAuth } from '../hooks/useAuth';
 import { makeMove } from '../services/database/gameService';
@@ -21,14 +21,41 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
   const [currentGuess, setCurrentGuess] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showingPlayerBoard, setShowingPlayerBoard] = useState(true);
+  const { width, height } = useWindowDimensions();
+  
+  // Determine if device is larger (iPad or landscape)
+  const isLargeDevice = width > 768;
 
-  const playerGuesses = game.playerGuesses[userData?.uid || ''] || { guesses: [], results: [] };
-  const opponentGuesses = game.playerGuesses[game.players.find(id => id !== userData?.uid) || ''] || { guesses: [], results: [] };
-  const opponentName = game.players.find(id => id !== userData?.uid);
+  const userId = userData?.uid || '';
+  const opponentId = game.players.find(id => id !== userId) || '';
+  const playerGuesses = game.playerGuesses[userId] || { guesses: [], results: [] };
+  const opponentGuesses = game.playerGuesses[opponentId] || { guesses: [], results: [] };
+  
+  // Check if it's the player's turn
+  const isPlayerTurn = game.currentTurn === userId;
+  
+  // useEffect to switch to opponent's board automatically when they make a move
+  useEffect(() => {
+    if (!isPlayerTurn && game.status === 'active') {
+      // Only switch if we're not already showing opponent's board
+      if (showingPlayerBoard) {
+        setShowingPlayerBoard(false);
+      }
+    } else if (isPlayerTurn && game.status === 'active') {
+      // Switch back to player's board when it's their turn
+      if (!showingPlayerBoard) {
+        setShowingPlayerBoard(true);
+      }
+    }
+  }, [game.currentTurn, game.status]);
 
   const handleKeyPress = async (key: string) => {
     if (game.status !== 'active' || !userData) return;
     if (playerGuesses.guesses.length >= game.maxGuesses) return;
+    if (!isPlayerTurn) {
+      setError("It's your opponent's turn");
+      return;
+    }
 
     setError(null);
 
@@ -80,8 +107,15 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
           }
 
           return (
-            <View key={`cell-${rowIndex}-${i}`} style={[styles.cell, { backgroundColor }]}>
-              <Text style={styles.cellText}>
+            <View key={`cell-${rowIndex}-${i}`} style={[
+              styles.cell, 
+              { backgroundColor },
+              isLargeDevice && styles.cellLarge
+            ]}>
+              <Text style={[
+                styles.cellText,
+                isLargeDevice && styles.cellTextLarge
+              ]}>
                 {!isOpponent ? letter : ''}
               </Text>
             </View>
@@ -100,35 +134,43 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
   };
 
   const renderKeyboard = () => {
-    const rows = [
-      ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-      ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-      ['ENTER', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']
-    ];
-
     return (
       <View style={styles.keyboard}>
-        {rows.map((row, rowIndex) => (
+        {QWERTY_LAYOUT.map((row, rowIndex) => (
           <View key={rowIndex} style={styles.keyboardRow}>
             {row.map((key) => {
               const isWide = key === 'ENTER' || key === '⌫';
-              const keyStyle = [
-                styles.key,
-                isWide && styles.wideKey,
-                currentGuess.length === 5 && key === 'ENTER' && { backgroundColor: '#538d4e' },
-                key === '⌫' && currentGuess.length > 0 && { backgroundColor: '#538d4e' }
-              ];
-
+              const isDisabled = !isPlayerTurn || game.status !== 'active';
+              
+              // Customize key colors based on state
+              let keyBgColor = '#3a3a3c';
+              if (isDisabled) {
+                keyBgColor = '#242425';
+              } else if (key === 'ENTER' && currentGuess.length === 5) {
+                keyBgColor = '#538d4e';
+              } else if (key === '⌫' && currentGuess.length > 0) {
+                keyBgColor = '#538d4e';
+              }
+              
               return (
                 <TouchableOpacity
                   key={key}
-                  style={keyStyle}
+                  style={[
+                    styles.key,
+                    isWide && styles.wideKey,
+                    isLargeDevice && styles.keyLarge,
+                    isWide && isLargeDevice && styles.wideKeyLarge,
+                    { backgroundColor: keyBgColor }
+                  ]}
                   onPress={() => handleKeyPress(key)}
                   activeOpacity={0.7}
+                  disabled={isDisabled}
                 >
                   <Text style={[
                     styles.keyText,
-                    isWide && { fontSize: 14 }
+                    isWide && { fontSize: 14 },
+                    isLargeDevice && styles.keyTextLarge,
+                    isDisabled && { opacity: 0.5 }
                   ]}>
                     {key}
                   </Text>
@@ -164,8 +206,46 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
     return rows.reverse();
   };
 
+  const renderGameStatus = () => {
+    if (game.status === 'completed') {
+      return (
+        <View style={styles.gameStatusContainer}>
+          <Text style={styles.gameStatusText}>
+            {game.winner === userId ? "You won!" : 
+             game.winner === 'draw' ? "It's a draw!" : 
+             "You lost!"}
+          </Text>
+          {game.winner !== 'draw' && (
+            <Text style={styles.wordReveal}>
+              The word was: <Text style={styles.wordRevealHighlight}>{game.word}</Text>
+            </Text>
+          )}
+        </View>
+      );
+    }
+    
+    if (game.status === 'active') {
+      return (
+        <View style={styles.turnIndicatorContainer}>
+          <View style={[
+            styles.turnIndicator, 
+            isPlayerTurn ? styles.playerTurn : styles.opponentTurn
+          ]}>
+            <Text style={styles.turnIndicatorText}>
+              {isPlayerTurn ? "Your turn" : "Opponent's turn"}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+    
+    return null;
+  };
+
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container}>
+      {renderGameStatus()}
+      
       <View style={styles.toggleContainer}>
         <TouchableOpacity 
           style={[
@@ -189,7 +269,7 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
           <Text style={[
             styles.toggleText,
             !showingPlayerBoard && styles.toggleTextActive
-          ]}>THEM ({opponentGuesses.guesses.length}/6)</Text>
+          ]}>OPPONENT ({opponentGuesses.guesses.length}/6)</Text>
         </TouchableOpacity>
       </View>
 
@@ -218,25 +298,67 @@ const WordleGame: React.FC<Props> = ({ game, onQuit }) => {
       <TouchableOpacity style={styles.quitButton} onPress={onQuit}>
         <Text style={styles.quitButtonText}>Quit Game</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: '#121213',
-    paddingTop: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+  },
+  gameStatusContainer: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 16,
+    backgroundColor: '#2a2a2b',
+    borderRadius: 8,
+  },
+  gameStatusText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  wordReveal: {
+    fontSize: 16,
+    color: '#d1d1d1',
+  },
+  wordRevealHighlight: {
+    color: '#6366f1',
+    fontWeight: 'bold',
+  },
+  turnIndicatorContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  turnIndicator: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+  },
+  playerTurn: {
+    backgroundColor: '#538d4e',
+  },
+  opponentTurn: {
+    backgroundColor: '#b59f3b',
+  },
+  turnIndicatorText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   toggleContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
     gap: 8,
-    paddingHorizontal: 16,
-    marginBottom: 12,
   },
   toggleButton: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 8,
     backgroundColor: '#1a1a1b',
@@ -257,106 +379,98 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   boardContainer: {
-    flex: 1,
+    marginBottom: 16,
     alignItems: 'center',
-    paddingTop: 12,
   },
   gameBoard: {
     alignItems: 'center',
   },
   row: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    marginVertical: 2,
+    marginBottom: 8,
   },
   cell: {
     width: 50,
     height: 50,
-    borderWidth: 2,
-    borderColor: '#3a3a3c',
-    margin: 2,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1a1a1b',
+    margin: 2,
+  },
+  cellLarge: {
+    width: 60,
+    height: 60,
   },
   cellText: {
-    color: '#ffffff',
     fontSize: 24,
     fontWeight: 'bold',
-    textTransform: 'uppercase',
+    color: '#fff',
+  },
+  cellTextLarge: {
+    fontSize: 28,
   },
   errorContainer: {
-    backgroundColor: '#ff4040',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 4,
-    marginVertical: 8,
-    marginHorizontal: 16,
+    backgroundColor: '#f87171',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+    alignItems: 'center',
   },
   error: {
-    color: '#ffffff',
-    textAlign: 'center',
-    fontSize: 14,
+    color: '#fff',
     fontWeight: 'bold',
   },
   keyboardContainer: {
-    paddingBottom: 32,
-    paddingHorizontal: 4,
-    backgroundColor: '#121213',
-    borderTopWidth: 1,
-    borderTopColor: '#3a3a3c',
-    paddingTop: 8,
+    marginTop: 8,
+    marginBottom: 16,
   },
   keyboard: {
-    alignSelf: 'center',
-    width: '100%',
-    maxWidth: 420,
+    alignItems: 'center',
   },
   keyboardRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     marginBottom: 8,
-    paddingHorizontal: 4,
   },
   key: {
-    height: 52,
-    margin: 2,
-    borderRadius: 4,
+    backgroundColor: '#3a3a3c',
+    width: 30,
+    height: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#818384',
-    paddingHorizontal: 4,
-    minWidth: 30,
-    flex: 1,
-    maxWidth: 40,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
-    elevation: 3,
+    marginHorizontal: 2,
+    borderRadius: 4,
+  },
+  keyLarge: {
+    width: 40,
+    height: 60,
   },
   wideKey: {
-    minWidth: 60,
-    flex: 1.5,
-    maxWidth: 65,
-    backgroundColor: '#666668',
+    width: 60,
+  },
+  wideKeyLarge: {
+    width: 80,
   },
   keyText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  keyTextLarge: {
+    fontSize: 20,
   },
   quitButton: {
-    display: 'none',
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 8,
   },
   quitButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
+    color: '#fff',
     fontWeight: 'bold',
+    fontSize: 16,
   },
 });
 
