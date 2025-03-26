@@ -135,28 +135,44 @@ export default function GameScreen() {
   }
 
   const getGameResult = () => {
-    if (game.status === 'completed') {
-      if (game.winner === 'draw') {
-        return {
-          text: "It's a draw!",
-          color: '#94a3b8'
-        };
-      } else if (game.winner === userData?.uid) {
-        return {
-          text: 'You won!',
-          color: '#22c55e'
-        };
-      } else {
-        return {
-          text: 'You lost!',
-          color: '#ef4444'
-        };
-      }
-    } else if (game.status === 'abandoned') {
-      return {
-        text: 'Opponent quit the game',
-        color: '#94a3b8'
+    // Force game result to appear when status is appropriate 
+    if ((game.status === 'completed' || game.status === 'abandoned') && userData?.uid) {
+      console.log('Game over - preparing result for player:', userData.uid);
+      console.log('Game data:', game);
+      
+      // For Hangman games, include the word in the result object
+      let resultObj = {
+        text: '',
+        color: '',
+        word: null as string | null
       };
+
+      // Always include word for Hangman games
+      if (game.type === 'hangman' && game.words) {
+        // Get my word directly from game.words object
+        const myWord = game.words[userData.uid];
+        console.log('Found player word:', myWord);
+        resultObj.word = myWord || '';
+      }
+
+      if (game.status === 'completed') {
+        if (game.winner === 'draw') {
+          resultObj.text = "It's a draw!";
+          resultObj.color = '#94a3b8';
+        } else if (game.winner === userData.uid) {
+          resultObj.text = 'You won!';
+          resultObj.color = '#22c55e';
+        } else {
+          resultObj.text = 'You lost!';
+          resultObj.color = '#ef4444';
+        }
+      } else {
+        resultObj.text = 'Opponent quit the game';
+        resultObj.color = '#94a3b8';
+      }
+      
+      console.log('Final result object:', resultObj);
+      return resultObj;
     }
     return null;
   };
@@ -213,6 +229,19 @@ export default function GameScreen() {
             <Text style={[styles.resultText, { color: gameResult.color }]}>
               {gameResult.text}
             </Text>
+            
+            {/* Display the player's word if it's a Hangman game */}
+            {game.type === 'hangman' && gameResult.word && (
+              <View style={styles.wordRevealContainer}>
+                <Text style={styles.wordRevealLabel}>
+                  Your word was:
+                </Text>
+                <Text style={styles.wordReveal}>
+                  {gameResult.word}
+                </Text>
+              </View>
+            )}
+            
             <TouchableOpacity 
               style={styles.playAgainButton}
               onPress={() => navigation.goBack()}
@@ -279,7 +308,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+    backgroundColor: '#1e293b',
   },
   resultContent: {
     flex: 1,
@@ -291,6 +320,29 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
     marginBottom: 20,
+    textAlign: 'center',
+  },
+  wordRevealContainer: {
+    backgroundColor: 'rgba(254, 243, 199, 0.9)',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    width: '80%',
+  },
+  wordRevealLabel: {
+    fontSize: 18,
+    color: '#92400e',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  wordReveal: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#92400e',
+    letterSpacing: 2,
     textAlign: 'center',
   },
   playAgainButton: {

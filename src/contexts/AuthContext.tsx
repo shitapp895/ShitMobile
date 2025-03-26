@@ -302,30 +302,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (currentStatus?.lastShitStartTime) {
           const shitDuration = currentTime - currentStatus.lastShitStartTime;
           
-          // Update statistics in Firestore
+          // Only count shits that are at least 2 minutes long
+          const MIN_SHIT_DURATION = 120000; // 2 minutes in milliseconds
+          
+          // First update Firestore with the stats if eligible
           const userDocRef = doc(firestore, 'users', currentUser.uid);
           const userDoc = await getDoc(userDocRef);
           const userData = userDoc.data() as UserData;
           
-          const totalShits = (userData.totalShits || 0) + 1;
-          const totalShitDuration = (userData.totalShitDuration || 0) + shitDuration;
-          const averageShitDuration = totalShitDuration / totalShits;
+          // Important: Update Firestore first and wait for it to complete before updating RTDB
+          if (shitDuration >= MIN_SHIT_DURATION) {
+            // Update statistics in Firestore
+            const totalShits = (userData.totalShits || 0) + 1;
+            const totalShitDuration = (userData.totalShitDuration || 0) + shitDuration;
+            const averageShitDuration = totalShitDuration / totalShits;
+            
+            console.log(`Updating stats: Duration=${shitDuration}ms, Total=${totalShits}`);
+            
+            // Wait for the Firestore update to complete before updating RTDB
+            await updateDoc(userDocRef, {
+              totalShits,
+              totalShitDuration,
+              averageShitDuration,
+            });
+          } else {
+            console.log(`Shit duration (${shitDuration}ms) less than minimum (${MIN_SHIT_DURATION}ms), not counting towards stats`);
+          }
           
-          await updateDoc(userDocRef, {
-            totalShits,
-            totalShitDuration,
-            averageShitDuration,
+          // Only update RTDB after Firestore update is complete
+          // This prevents race conditions where RTDB triggers a refresh before Firestore completes
+          await set(statusRef, {
+            isOnline: true,
+            isShitting: false,
+            lastActive: currentTime,
+            lastShitStartTime: null,
+            sessions: { ...(statusData.sessions || {}), [sessionId]: true }
+          });
+        } else {
+          // No shit in progress, just update status
+          await set(statusRef, {
+            isOnline: true,
+            isShitting: false,
+            lastActive: currentTime,
+            lastShitStartTime: null,
+            sessions: { ...(statusData.sessions || {}), [sessionId]: true }
           });
         }
-        
-        // Update real-time status
-        await set(statusRef, {
-          isOnline: true,
-          isShitting: false,
-          lastActive: currentTime,
-          lastShitStartTime: null,
-          sessions: { ...(statusData.sessions || {}), [sessionId]: true }
-        });
       }
       
       // Setup disconnect handler to remove this session and reset status when the app closes

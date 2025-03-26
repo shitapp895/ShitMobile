@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc, updateDoc, arrayUnion, arrayRemove, where } from 'firebase/firestore';
@@ -21,6 +21,100 @@ interface Shweet {
 // Object to store status listeners
 const statusListeners: {[key: string]: () => void} = {};
 
+// Format timestamp
+const formatTimestamp = (timestamp: any) => {
+  if (!timestamp) return 'Just now';
+  
+  const now = new Date();
+  const date = timestamp.toDate();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  
+  if (diffInSeconds < 60) {
+    return 'less than 1 min';
+  } else if (diffInSeconds < 3600) {
+    return `${Math.floor(diffInSeconds / 60)}m ago`;
+  } else if (diffInSeconds < 86400) {
+    return `${Math.floor(diffInSeconds / 3600)}h ago`;
+  } else {
+    return date.toLocaleDateString();
+  }
+};
+
+// Create a memoized ShweetItem component to prevent unnecessary re-renders
+const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting }: { 
+  item: Shweet, 
+  onLike: (id: string) => void, 
+  onDelete: (id: string) => void, 
+  currentUserId: string | undefined,
+  isDeleting: boolean
+}) => {
+  const userHasLiked = item.likes.includes(currentUserId || '');
+  
+  return (
+    <View style={styles.shweetCard}>
+      <View style={styles.shweetHeader}>
+        <View style={styles.authorInfo}>
+          {item.authorPhotoURL ? (
+            <Image source={{ uri: item.authorPhotoURL }} style={styles.authorAvatar} />
+          ) : (
+            <View style={styles.defaultAvatar}>
+              <Text style={styles.avatarText}>{item.authorName.charAt(0)}</Text>
+            </View>
+          )}
+          <View>
+            <Text style={styles.authorName}>{item.authorName}</Text>
+            <View style={styles.statusContainer}>
+              {item.isShitting && (
+                <View style={styles.shittingBadge}>
+                  <Ionicons name="water" size={12} color="#fff" />
+                  <Text style={styles.shittingText}>Shitting</Text>
+                </View>
+              )}
+              <Text style={styles.timestamp}>{formatTimestamp(item.timestamp)}</Text>
+            </View>
+          </View>
+        </View>
+        
+        <View style={styles.actionButtons}>
+          {/* Like button - no loading indicator, immediate feedback */}
+          <TouchableOpacity 
+            style={styles.likeButton}
+            onPress={() => onLike(item.id)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.likeContainer}>
+              <Ionicons 
+                name={userHasLiked ? "heart" : "heart-outline"} 
+                size={18} 
+                color={userHasLiked ? "#6366f1" : "#6b7280"} 
+              />
+              <Text style={styles.likeCount}>{item.likes.length}</Text>
+            </View>
+          </TouchableOpacity>
+          
+          {/* Delete button - only shown for user's own shweets */}
+          {currentUserId === item.authorId && (
+            <TouchableOpacity 
+              style={styles.deleteButton}
+              onPress={() => onDelete(item.id)}
+              disabled={isDeleting}
+              activeOpacity={0.7}
+            >
+              {isDeleting ? (
+                <ActivityIndicator size="small" color="#f87171" />
+              ) : (
+                <Ionicons name="trash-outline" size={18} color="#f87171" />
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+      
+      <Text style={styles.shweetContent}>{item.content}</Text>
+    </View>
+  );
+});
+
 export default function ShweetsScreen() {
   const { userData } = useAuth();
   const [shweets, setShweets] = useState<Shweet[]>([]);
@@ -30,17 +124,50 @@ export default function ShweetsScreen() {
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const [deletingShweetId, setDeletingShweetId] = useState<string | null>(null);
-  const [likingShweetId, setLikingShweetId] = useState<string | null>(null);
   const [friendsList, setFriendsList] = useState<string[]>([]);
+  // Track which shweets have had local like changes to prevent Firestore from overriding
+  const localLikeUpdates = useRef<{[shweetId: string]: string[]}>({});
   
   // Fetch friends list once when component mounts
   useEffect(() => {
     if (userData?.uid) {
-      fetchFriendsList();
+      // Fetch friends and shweets on initial load
+      fetchFriendsAndShweets();
     }
   }, [userData?.uid]);
   
-  // Fetch friends list 
+  // Combined function to fetch friends and then shweets
+  const fetchFriendsAndShweets = async () => {
+    if (!userData?.uid) return;
+    
+    try {
+      console.log(`Fetching friends list for user ${userData.uid}`);
+      const userDocRef = doc(firestore, 'users', userData.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      let friends: string[] = [];
+      if (userDoc.exists()) {
+        const userDocData = userDoc.data();
+        console.log('User document data:', userDocData);
+        friends = userDocData.friends || [];
+        console.log(`Friends list retrieved with ${friends.length} friends:`, friends);
+        
+        // Update state
+        setFriendsList(friends);
+        
+        // Immediately fetch shweets using the freshly fetched friends list
+        fetchShweetsWithFriends(friends);
+      } else {
+        console.log('User document does not exist');
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('Error fetching friends list:', error);
+      setLoading(false);
+    }
+  };
+  
+  // Fetch friends list (used for refresh)
   const fetchFriendsList = async () => {
     if (!userData?.uid) return;
     
@@ -49,36 +176,38 @@ export default function ShweetsScreen() {
       const userDocRef = doc(firestore, 'users', userData.uid);
       const userDoc = await getDoc(userDocRef);
       
+      let friends: string[] = [];
       if (userDoc.exists()) {
-        const userData = userDoc.data();
-        console.log('User document data:', userData);
-        const friends = userData.friends || [];
+        const userDocData = userDoc.data();
+        console.log('User document data:', userDocData);
+        friends = userDocData.friends || [];
         console.log(`Friends list retrieved with ${friends.length} friends:`, friends);
         setFriendsList(friends);
+        return friends;
       } else {
         console.log('User document does not exist');
+        return [];
       }
     } catch (error) {
       console.error('Error fetching friends list:', error);
+      return [];
     }
   };
   
-  // Fetch shweets with real-time updates
+  // Add cleanup for listeners in an effect hook
   useEffect(() => {
-    fetchShweets();
-    
     return () => {
       // Clean up all status listeners
       Object.values(statusListeners).forEach(unsubscribe => unsubscribe());
     };
   }, []);
   
-  // Function to fetch shweets
-  const fetchShweets = useCallback(async () => {
+  // Fetch shweets with specific friends list
+  const fetchShweetsWithFriends = useCallback((friendsIds: string[]) => {
     if (!userData?.uid) return;
     
     console.log(`Fetching shweets for user ${userData.uid}`);
-    console.log('Current friends list:', friendsList);
+    console.log('Using friends list:', friendsIds);
     
     const shweetsQuery = query(
       collection(firestore, 'tweets'),
@@ -111,7 +240,7 @@ export default function ShweetsScreen() {
           
           // Only show shweets from friends and the user's own shweets
           if (shweetData.authorId !== userData.uid && 
-              !friendsList.includes(shweetData.authorId)) {
+              !friendsIds.includes(shweetData.authorId)) {
             console.log(`Skipping shweet ${document.id} - author not in friends list`);
             continue;
           }
@@ -120,13 +249,39 @@ export default function ShweetsScreen() {
           let authorName = 'Unknown User';
           let authorPhotoURL = null;
           let isShitting = false;
+          let likes = shweetData.likes || [];
           
           const existingShweet = currentShweetIds.get(document.id);
+          
+          // Use local like updates if we have them for this shweet
+          if (localLikeUpdates.current[document.id]) {
+            likes = localLikeUpdates.current[document.id];
+          }
+          
           if (existingShweet && existingShweet.authorId === shweetData.authorId) {
             // Reuse author info from existing shweet
             authorName = existingShweet.authorName;
             authorPhotoURL = existingShweet.authorPhotoURL;
             isShitting = existingShweet.isShitting;
+            
+            // Don't update likes if we have pending local updates
+            if (!localLikeUpdates.current[document.id]) {
+              likes = existingShweet.likes;
+            }
+            
+            const shweet = {
+              id: document.id,
+              authorId: shweetData.authorId,
+              authorName,
+              authorPhotoURL,
+              content: shweetData.content,
+              timestamp: shweetData.timestamp,
+              likes,
+              isShitting,
+            };
+            
+            console.log(`Adding existing shweet ${document.id} to list with preserved likes`);
+            shweetsList.push(shweet);
           } else {
             // Need to fetch author info
             const authorDocRef = doc(firestore, 'users', shweetData.authorId);
@@ -135,24 +290,24 @@ export default function ShweetsScreen() {
             authorName = authorData.displayName || 'Unknown User';
             authorPhotoURL = authorData.photoURL || null;
             isShitting = authorData.isShitting || false;
+            
+            const shweet = {
+              id: document.id,
+              authorId: shweetData.authorId,
+              authorName,
+              authorPhotoURL,
+              content: shweetData.content,
+              timestamp: shweetData.timestamp,
+              likes,
+              isShitting,
+            };
+            
+            console.log(`Adding new shweet ${document.id} to list`);
+            shweetsList.push(shweet);
           }
           
-          const shweet = {
-            id: document.id,
-            authorId: shweetData.authorId,
-            authorName,
-            authorPhotoURL,
-            content: shweetData.content,
-            timestamp: shweetData.timestamp,
-            likes: shweetData.likes || [],
-            isShitting,
-          };
-          
-          console.log(`Adding shweet ${document.id} to list`);
-          shweetsList.push(shweet);
-          
           // Setup individual status listeners for each author
-          setupStatusListener(shweet.authorId, shweetsList);
+          setupStatusListener(shweetData.authorId);
         }
         
         console.log(`Setting state with ${shweetsList.length} shweets`);
@@ -171,10 +326,17 @@ export default function ShweetsScreen() {
     });
     
     return unsubscribe;
-  }, [userData?.uid, friendsList, shweets]);
+  }, [userData?.uid, shweets]);
+  
+  // Original fetchShweets function (modified to use latest friends list from state)
+  const fetchShweets = useCallback(() => {
+    if (!userData?.uid) return;
+    // Use non-null assertion to tell TypeScript this is definitely a string[]
+    return fetchShweetsWithFriends(friendsList as string[]);
+  }, [userData?.uid, friendsList, fetchShweetsWithFriends]);
   
   // Setup a status listener for an individual author
-  const setupStatusListener = (authorId: string, shweetsList: Shweet[]) => {
+  const setupStatusListener = (authorId: string) => {
     // Skip if we already have a listener for this author
     if (statusListeners[authorId]) return;
     
@@ -228,25 +390,6 @@ export default function ShweetsScreen() {
       setSubmitting(false);
     }
   }, [userData, newShweet]);
-  
-  // Format timestamp
-  const formatTimestamp = (timestamp: any) => {
-    if (!timestamp) return 'Just now';
-    
-    const now = new Date();
-    const date = timestamp.toDate();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-    
-    if (diffInSeconds < 60) {
-      return 'less than 1 min';
-    } else if (diffInSeconds < 3600) {
-      return `${Math.floor(diffInSeconds / 60)}m ago`;
-    } else if (diffInSeconds < 86400) {
-      return `${Math.floor(diffInSeconds / 3600)}h ago`;
-    } else {
-      return date.toLocaleDateString();
-    }
-  };
   
   // Add function to delete a shweet
   const handleDeleteShweet = useCallback(async (shweetId: string) => {
@@ -315,60 +458,63 @@ export default function ShweetsScreen() {
     const shweet = shweets[shweetIndex];
     const userHasLiked = shweet.likes.includes(userData.uid);
     
-    // Optimistically update UI
+    // Create the new likes array
+    let newLikes: string[];
+    if (userHasLiked) {
+      // Unlike - filter out user ID
+      newLikes = shweet.likes.filter(id => id !== userData.uid);
+    } else {
+      // Like - add user ID
+      newLikes = [...shweet.likes, userData.uid];
+    }
+    
+    // Store this update in our ref to prevent Firestore from overriding it
+    localLikeUpdates.current[shweetId] = newLikes;
+    
+    // Optimistically update UI immediately
     setShweets(currentShweets => {
       const updatedShweets = [...currentShweets];
       const shweetToUpdate = { ...updatedShweets[shweetIndex] };
-      
-      if (userHasLiked) {
-        // Unlike
-        shweetToUpdate.likes = shweetToUpdate.likes.filter(id => id !== userData.uid);
-      } else {
-        // Like
-        shweetToUpdate.likes = [...shweetToUpdate.likes, userData.uid];
-      }
-      
+      shweetToUpdate.likes = newLikes;
       updatedShweets[shweetIndex] = shweetToUpdate;
       return updatedShweets;
     });
-    
-    setLikingShweetId(shweetId);
     
     try {
       const shweetRef = doc(firestore, 'tweets', shweetId);
       
       if (userHasLiked) {
-        // Unlike the shweet
+        // Unlike the shweet - do this in the background
         await updateDoc(shweetRef, {
           likes: arrayRemove(userData.uid)
         });
       } else {
-        // Like the shweet
+        // Like the shweet - do this in the background
         await updateDoc(shweetRef, {
           likes: arrayUnion(userData.uid)
         });
       }
       
-      // No need to update local state again, as we've already done it optimistically
+      // After successful update, we can remove the local override
+      delete localLikeUpdates.current[shweetId];
     } catch (error) {
       console.error('Error toggling like:', error);
-      
       // Revert the optimistic update on error
-      setShweets(currentShweets => {
-        const updatedShweets = [...currentShweets];
-        const shweetToRevert = updatedShweets.find(s => s.id === shweetId);
-        
-        if (shweetToRevert) {
-          const index = updatedShweets.indexOf(shweetToRevert);
-          updatedShweets[index] = shweet; // Restore original shweet
-        }
-        
-        return updatedShweets;
-      });
-    } finally {
-      setLikingShweetId(null);
+      delete localLikeUpdates.current[shweetId];
+      revertLikeUpdate(shweet, shweetIndex);
     }
   }, [userData, shweets]);
+  
+  // Helper function to revert like update on error
+  const revertLikeUpdate = useCallback((originalShweet: Shweet, shweetIndex: number) => {
+    setShweets(currentShweets => {
+      const updatedShweets = [...currentShweets];
+      if (updatedShweets[shweetIndex]) {
+        updatedShweets[shweetIndex] = originalShweet;
+      }
+      return updatedShweets;
+    });
+  }, []);
   
   // Check and fix friend relationships if needed
   const checkFriendRelationships = async () => {
@@ -394,15 +540,16 @@ export default function ShweetsScreen() {
     Object.values(statusListeners).forEach(unsubscribe => unsubscribe());
     // Clear listeners object
     Object.keys(statusListeners).forEach(key => delete statusListeners[key]);
-    // Fetch friends list again
-    fetchFriendsList().then(() => {
+    
+    // Fetch friends list and then shweets with the fresh friends list
+    fetchFriendsList().then((friends) => {
       // Check friend relationships
       checkFriendRelationships().then(() => {
-        // Fetch fresh data after friends list is updated and relationships are checked
-        fetchShweets();
+        // Fetch fresh data with the new friends list
+        fetchShweetsWithFriends(friends);
       });
     });
-  }, [fetchShweets, userData?.uid, friendsList]);
+  }, [fetchShweetsWithFriends, userData?.uid]);
   
   // Add a refresh control to the FlatList
   const renderRefreshControl = useCallback(() => {
@@ -415,113 +562,62 @@ export default function ShweetsScreen() {
     );
   }, [refreshing, handleRefresh]);
   
-  // Render a shweet
-  const renderShweetItem = ({ item }: { item: Shweet }) => (
-    <View style={styles.shweetCard}>
-      <View style={styles.shweetHeader}>
-        <View style={styles.authorInfo}>
-          {item.authorPhotoURL ? (
-            <Image source={{ uri: item.authorPhotoURL }} style={styles.authorAvatar} />
-          ) : (
-            <View style={styles.defaultAvatar}>
-              <Text style={styles.avatarText}>{item.authorName.charAt(0)}</Text>
-            </View>
-          )}
-          <View>
-            <Text style={styles.authorName}>{item.authorName}</Text>
-            <View style={styles.statusContainer}>
-              {item.isShitting && (
-                <View style={styles.shittingBadge}>
-                  <Ionicons name="water" size={12} color="#fff" />
-                  <Text style={styles.shittingText}>Shitting</Text>
-                </View>
-              )}
-              <Text style={styles.timestamp}>{formatTimestamp(item.timestamp)}</Text>
-            </View>
-          </View>
-        </View>
-        
-        <View style={styles.actionButtons}>
-          {/* Like button */}
+  // Update the main rendering function to use the memoized component
+  const renderShweetItem = useCallback(({ item }: { item: Shweet }) => (
+    <ShweetItem 
+      item={item}
+      onLike={handleLikeToggle}
+      onDelete={handleDeleteShweet}
+      currentUserId={userData?.uid}
+      isDeleting={deletingShweetId === item.id}
+    />
+  ), [handleLikeToggle, handleDeleteShweet, userData?.uid, deletingShweetId]);
+  
+  return (
+    <View style={styles.container}>
+      <View style={styles.composeContainer}>
+        <View style={styles.inputContainer}>
+          <TextInput
+            ref={inputRef}
+            style={styles.input}
+            placeholder="Send your friends a Shweet..."
+            multiline
+            value={newShweet}
+            onChangeText={setNewShweet}
+            placeholderTextColor="#9ca3af"
+          />
           <TouchableOpacity 
-            style={styles.likeButton}
-            onPress={() => handleLikeToggle(item.id)}
-            disabled={likingShweetId === item.id}
+            style={styles.sendButton}
+            onPress={handlePostShweet}
+            disabled={submitting || !newShweet.trim()}
           >
-            <View style={styles.likeContainer}>
-              <Ionicons 
-                name={item.likes.includes(userData?.uid || '') ? "heart" : "heart-outline"} 
-                size={18} 
-                color={item.likes.includes(userData?.uid || '') ? "#6366f1" : "#6b7280"} 
-              />
-              <Text style={styles.likeCount}>{item.likes.length}</Text>
-            </View>
+            {submitting ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="send" size={20} color="#fff" />
+            )}
           </TouchableOpacity>
-          
-          {/* Delete button - only shown for user's own shweets */}
-          {userData?.uid === item.authorId && (
-            <TouchableOpacity 
-              style={styles.deleteButton}
-              onPress={() => handleDeleteShweet(item.id)}
-              disabled={deletingShweetId === item.id}
-            >
-              {deletingShweetId === item.id ? (
-                <ActivityIndicator size="small" color="#f87171" />
-              ) : (
-                <Ionicons name="trash-outline" size={18} color="#f87171" />
-              )}
-            </TouchableOpacity>
-          )}
         </View>
       </View>
       
-      <Text style={styles.shweetContent}>{item.content}</Text>
-    </View>
-  );
-  
-  return (
-    <TouchableWithoutFeedback onPress={dismissKeyboard}>
-      <View style={styles.container}>
-        <View style={styles.composeContainer}>
-          <View style={styles.inputContainer}>
-            <TextInput
-              ref={inputRef}
-              style={styles.input}
-              placeholder="Send your friends a Shweet..."
-              multiline
-              value={newShweet}
-              onChangeText={setNewShweet}
-              placeholderTextColor="#9ca3af"
-            />
-            <TouchableOpacity 
-              style={styles.sendButton}
-              onPress={handlePostShweet}
-              disabled={submitting || !newShweet.trim()}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="send" size={20} color="#fff" />
-              )}
-            </TouchableOpacity>
-          </View>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#10b981" />
         </View>
-        
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#10b981" />
-          </View>
-        ) : (
-          <FlatList
-            data={shweets}
-            keyExtractor={(item) => item.id}
-            renderItem={renderShweetItem}
-            contentContainerStyle={styles.shweetsList}
-            refreshControl={renderRefreshControl()}
-          />
-        )}
-      </View>
-    </TouchableWithoutFeedback>
+      ) : (
+        <FlatList
+          data={shweets}
+          keyExtractor={(item) => item.id}
+          renderItem={renderShweetItem}
+          contentContainerStyle={styles.shweetsList}
+          refreshControl={renderRefreshControl()}
+          windowSize={5}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          updateCellsBatchingPeriod={50}
+        />
+      )}
+    </View>
   );
 }
 

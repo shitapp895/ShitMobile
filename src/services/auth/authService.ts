@@ -161,17 +161,8 @@ export const updateUserStatus = async (isShitting: boolean): Promise<void> => {
   }
   
   try {
-    // Update Realtime Database status
-    const userStatusRef = ref(database, `status/${user.uid}`);
-    await set(userStatusRef, {
-      isOnline: true,
-      isShitting,
-      lastActive: Date.now(),
-    });
-    
-    // Update Firestore document
+    // Update Firestore document first to avoid race conditions
     const userDocRef = doc(firestore, 'users', user.uid);
-    
     const userDoc = await getDoc(userDocRef);
     
     if (userDoc.exists()) {
@@ -183,22 +174,62 @@ export const updateUserStatus = async (isShitting: boolean): Promise<void> => {
           isShitting: true,
           lastShitStartTime: Date.now(),
         });
+        
+        // After Firestore update is complete, update Realtime Database
+        await set(ref(database, `status/${user.uid}`), {
+          isOnline: true,
+          isShitting: true,
+          lastActive: Date.now(),
+          lastShitStartTime: Date.now(),
+        });
       }
       
       // If ending a shit, update stats
       if (!isShitting && userData.isShitting && userData.lastShitStartTime) {
-        const shitDuration = Date.now() - userData.lastShitStartTime;
-        const totalShits = (userData.totalShits || 0) + 1;
-        const totalShitDuration = (userData.totalShitDuration || 0) + shitDuration;
-        const averageShitDuration = totalShitDuration / totalShits;
+        const currentTime = Date.now();
+        const shitDuration = currentTime - userData.lastShitStartTime;
         
-        await updateDoc(userDocRef, {
+        // Only count shits that are at least 2 minutes long
+        const MIN_SHIT_DURATION = 120000; // 2 minutes in milliseconds
+        
+        if (shitDuration >= MIN_SHIT_DURATION) {
+          const totalShits = (userData.totalShits || 0) + 1;
+          const totalShitDuration = (userData.totalShitDuration || 0) + shitDuration;
+          const averageShitDuration = totalShitDuration / totalShits;
+          
+          console.log(`Updating stats in authService: Duration=${shitDuration}ms, Total=${totalShits}`);
+          
+          // Wait for Firestore update to complete before updating RTDB
+          await updateDoc(userDocRef, {
+            isShitting: false,
+            totalShits,
+            totalShitDuration,
+            averageShitDuration,
+          });
+        } else {
+          console.log(`Shit duration (${shitDuration}ms) less than minimum (${MIN_SHIT_DURATION}ms), not counting towards stats`);
+          
+          // Still update isShitting status without changing stats
+          await updateDoc(userDocRef, {
+            isShitting: false,
+          });
+        }
+        
+        // Only update RTDB after Firestore is complete
+        await set(ref(database, `status/${user.uid}`), {
+          isOnline: true,
           isShitting: false,
-          totalShits,
-          totalShitDuration,
-          averageShitDuration,
+          lastActive: currentTime,
+          lastShitStartTime: null,
         });
       }
+    } else {
+      // No user document exists, just update RTDB
+      await set(ref(database, `status/${user.uid}`), {
+        isOnline: true,
+        isShitting,
+        lastActive: Date.now(),
+      });
     }
   } catch (error) {
     console.error('Error updating user status:', error);

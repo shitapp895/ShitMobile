@@ -24,9 +24,10 @@ export default function HomeScreen() {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const { userData, updateUserStatus, currentUser } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Stats are only used for the timer on the home screen now
+  // Full stats are available on the profile screen
   const [stats, setStats] = useState({
-    totalShits: userData?.totalShits || 0,
-    averageShitDuration: userData?.averageShitDuration || 0,
     isShitting: userData?.isShitting || false,
     shitStartTime: userData?.lastShitStartTime || 0,
   });
@@ -37,8 +38,6 @@ export default function HomeScreen() {
   useEffect(() => {
     if (userData) {
       setStats({
-        totalShits: userData.totalShits || 0,
-        averageShitDuration: userData.averageShitDuration || 0,
         isShitting: userData.isShitting || false,
         shitStartTime: userData.lastShitStartTime || 0,
       });
@@ -54,8 +53,6 @@ export default function HomeScreen() {
       if (docSnapshot.exists()) {
         const data = docSnapshot.data();
         setStats({
-          totalShits: data.totalShits || 0,
-          averageShitDuration: data.averageShitDuration || 0,
           isShitting: data.isShitting || false,
           shitStartTime: data.lastShitStartTime || 0,
         });
@@ -174,25 +171,7 @@ export default function HomeScreen() {
           )}
         </View>
         
-        <View style={styles.statsContainer}>
-          <Text style={styles.sectionTitle}>Your Stats</Text>
-          
-          <View style={styles.statCard}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.totalShits}</Text>
-              <Text style={styles.statLabel}>Total Shits</Text>
-            </View>
-            
-            <View style={styles.statDivider} />
-            
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>
-                {stats.averageShitDuration ? formatDuration(stats.averageShitDuration) : '0m 0s'}
-              </Text>
-              <Text style={styles.statLabel}>Average Duration</Text>
-            </View>
-          </View>
-        </View>
+        {/* Stats section removed - now only shown on Profile screen to reduce redundancy */}
         
         <View style={styles.tipsContainer}>
           <Text style={styles.sectionTitle}>Shit Tips</Text>
@@ -244,15 +223,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+    alignItems: 'center',
   },
   greeting: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 5,
+    textAlign: 'center',
   },
   statusText: {
     fontSize: 16,
     color: '#6b7280',
+    textAlign: 'center',
   },
   statusCard: {
     margin: 15,
@@ -301,48 +283,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#ef4444',
   },
-  statsContainer: {
+  tipsContainer: {
     padding: 15,
+    paddingBottom: 30,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 10,
     color: '#1f2937',
-  },
-  statCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#6366f1',
-    marginBottom: 5,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: '#e5e7eb',
-    marginHorizontal: 15,
-  },
-  tipsContainer: {
-    padding: 15,
-    paddingBottom: 30,
   },
   tipCard: {
     flexDirection: 'row',

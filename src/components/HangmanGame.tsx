@@ -20,6 +20,20 @@ const KEYBOARD_ROWS = [
 const HangmanGame: React.FC<HangmanGameProps> = ({ game, onMove, disabled }) => {
   const { userData } = useAuth();
   const [showWord, setShowWord] = useState(false);
+  
+  // Place all hooks at the top, before any conditional returns
+  useEffect(() => {
+    if (!userData?.uid) return;
+    
+    const userId = userData.uid;
+    const myRemainingLives = game.remainingLives?.[userId] ?? 6;
+    const myFinished = game.finishedGuessing?.[userId] || false;
+    
+    // Auto-show word when game is over, but only if not on the game over screen
+    if ((myRemainingLives <= 0 || myFinished) && game.status !== 'completed') {
+      setShowWord(true);
+    }
+  }, [game.status, game.remainingLives, game.finishedGuessing, userData?.uid]);
 
   if (!userData?.uid) {
     return (
@@ -41,19 +55,21 @@ const HangmanGame: React.FC<HangmanGameProps> = ({ game, onMove, disabled }) => 
     );
   }
 
-  // Get player's word and guessed letters
-  const myWord = game.words[userId];
-  const myGuessedLetters = game.guessedLetters[userId] || [];
-  const myRemainingLives = game.remainingLives[userId];
-  const myFinished = game.finishedGuessing[userId];
+  // Get player's word and guessed letters with null checks
+  const myWord = game.words?.[userId] || '';
+  const myGuessedLetters = game.guessedLetters?.[userId] || [];
+  const myRemainingLives = game.remainingLives?.[userId] ?? 6;
+  const myFinished = game.finishedGuessing?.[userId] || false;
 
-  // Get opponent's stats
-  const opponentGuessedLetters = game.guessedLetters[opponentId] || [];
-  const opponentRemainingLives = game.remainingLives[opponentId];
-  const opponentFinished = game.finishedGuessing[opponentId];
+  // Get opponent's stats with null checks
+  const opponentGuessedLetters = game.guessedLetters?.[opponentId] || [];
+  const opponentRemainingLives = game.remainingLives?.[opponentId] ?? 6;
+  const opponentFinished = game.finishedGuessing?.[opponentId] || false;
+  const opponentWord = game.words?.[opponentId] || '';
 
   // Display word with blanks for unguessed letters
   const getDisplayWord = (word: string, guessedLetters: string[]) => {
+    if (!word) return '';
     return word.split('').map(letter => 
       guessedLetters.includes(letter) ? letter : '_'
     ).join(' ');
@@ -61,12 +77,17 @@ const HangmanGame: React.FC<HangmanGameProps> = ({ game, onMove, disabled }) => 
 
   // Check if we've won or lost
   const getAllLettersGuessed = (word: string, guessedLetters: string[]) => {
+    if (!word) return false;
     return [...new Set(word.split(''))].every(letter => guessedLetters.includes(letter));
   };
 
   const isMyTurn = game.currentTurn === userId;
   const myAllLettersGuessed = getAllLettersGuessed(myWord, myGuessedLetters);
   const myWordDisplay = getDisplayWord(myWord, myGuessedLetters);
+  
+  // Don't show the game over UI in the game component itself
+  // since it will be shown in the GameScreen overlay
+  const isGameOver = game.status === 'completed';
   
   const handleLetterPress = (letter: string) => {
     if (!isMyTurn || disabled || myGuessedLetters.includes(letter) || myFinished) {
@@ -86,13 +107,15 @@ const HangmanGame: React.FC<HangmanGameProps> = ({ game, onMove, disabled }) => 
 
   // Calculate progress percentage for both players
   const calculateProgress = (word: string, guessedLetters: string[]) => {
+    if (!word) return 0;
     const uniqueLetters = [...new Set(word.split(''))];
+    if (uniqueLetters.length === 0) return 0;
     const correctGuesses = guessedLetters.filter(letter => word.includes(letter));
     return Math.floor((correctGuesses.length / uniqueLetters.length) * 100);
   };
 
   const myProgress = calculateProgress(myWord, myGuessedLetters);
-  const opponentProgress = calculateProgress(game.words[opponentId], opponentGuessedLetters);
+  const opponentProgress = calculateProgress(opponentWord, opponentGuessedLetters);
 
   return (
     <View style={styles.container}>
@@ -117,7 +140,7 @@ const HangmanGame: React.FC<HangmanGameProps> = ({ game, onMove, disabled }) => 
           <Ionicons name={showWord ? "eye-off" : "eye"} size={20} color="#6366f1" />
         </TouchableOpacity>
         <Text style={styles.livesText}>
-          Lives: {Array(myRemainingLives).fill('🧻').join(' ')}
+          Lives: {Array(Math.max(0, myRemainingLives)).fill('🧻').join(' ')}
         </Text>
         <View style={styles.progressContainer}>
           <View style={[styles.progressBar, { width: `${myProgress}%` }]} />
@@ -129,16 +152,17 @@ const HangmanGame: React.FC<HangmanGameProps> = ({ game, onMove, disabled }) => 
       <View style={styles.opponentContainer}>
         <Text style={styles.opponentLabel}>Opponent's Progress:</Text>
         <Text style={styles.livesText}>
-          Lives: {Array(opponentRemainingLives).fill('🧻').join(' ')}
+          Lives: {Array(Math.max(0, opponentRemainingLives)).fill('🧻').join(' ')}
         </Text>
         <View style={styles.progressContainer}>
           <View style={[styles.progressBar, { width: `${opponentProgress}%` }]} />
           <Text style={styles.progressText}>{opponentProgress}%</Text>
         </View>
+        
         <Text style={styles.statusText}>
           {opponentFinished 
             ? (myFinished 
-                ? `Final result: ${game.winner === userId ? 'You won!' : game.winner === 'draw' ? "It's a draw!" : 'You lost!'}`
+                ? 'Game complete!'
                 : 'Opponent has finished guessing')
             : 'Opponent is still guessing'}
         </Text>
@@ -248,11 +272,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#fff',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-    top: 2,
   },
   opponentContainer: {
     marginBottom: 24,
@@ -272,50 +291,55 @@ const styles = StyleSheet.create({
     color: '#4b5563',
   },
   statusText: {
-    fontSize: 14,
-    fontStyle: 'italic',
-    color: '#6b7280',
-    marginTop: 8,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4b5563',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#ef4444',
     textAlign: 'center',
   },
   keyboardContainer: {
-    marginTop: 16,
+    marginTop: 10,
   },
   keyboardRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   keyButton: {
     width: 30,
     height: 40,
-    backgroundColor: '#6366f1',
+    backgroundColor: '#fff',
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    margin: 3,
+    margin: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
   keyButtonDisabled: {
-    backgroundColor: '#d1d5db',
+    backgroundColor: '#e5e7eb',
   },
   keyButtonCorrect: {
     backgroundColor: '#10b981',
   },
   keyText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#4b5563',
   },
   keyTextDisabled: {
     color: '#9ca3af',
   },
   keyTextCorrect: {
     color: '#fff',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#ef4444',
-    textAlign: 'center',
   },
 });
 
