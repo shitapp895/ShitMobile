@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Image, TouchableWithoutFeedback, Keyboard, Alert, RefreshControl, Modal, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc, updateDoc, arrayUnion, arrayRemove, where } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
@@ -41,12 +41,13 @@ const formatTimestamp = (timestamp: any) => {
 };
 
 // Create a memoized ShweetItem component to prevent unnecessary re-renders
-const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting }: { 
+const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting, onViewLikes }: { 
   item: Shweet, 
   onLike: (id: string) => void, 
   onDelete: (id: string) => void, 
   currentUserId: string | undefined,
-  isDeleting: boolean
+  isDeleting: boolean,
+  onViewLikes: (id: string) => void
 }) => {
   const userHasLiked = item.likes.includes(currentUserId || '');
   
@@ -76,22 +77,6 @@ const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting }: 
         </View>
         
         <View style={styles.actionButtons}>
-          {/* Like button - no loading indicator, immediate feedback */}
-          <TouchableOpacity 
-            style={styles.likeButton}
-            onPress={() => onLike(item.id)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.likeContainer}>
-              <Ionicons 
-                name={userHasLiked ? "heart" : "heart-outline"} 
-                size={18} 
-                color={userHasLiked ? "#6366f1" : "#6b7280"} 
-              />
-              <Text style={styles.likeCount}>{item.likes.length}</Text>
-            </View>
-          </TouchableOpacity>
-          
           {/* Delete button - only shown for user's own shweets */}
           {currentUserId === item.authorId && (
             <TouchableOpacity 
@@ -111,6 +96,46 @@ const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting }: 
       </View>
       
       <Text style={styles.shweetContent}>{item.content}</Text>
+      
+      {/* Enhanced like button and count */}
+      <View style={styles.shweetFooter}>
+        <View style={styles.likesSection}>
+          <TouchableOpacity 
+            style={styles.likeButton}
+            onPress={() => onLike(item.id)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.likeContainer}>
+              <Ionicons 
+                name={userHasLiked ? "heart" : "heart-outline"} 
+                size={22} 
+                color={userHasLiked ? "#6366f1" : "#6b7280"} 
+              />
+              <Text 
+                style={[
+                  styles.likeCount, 
+                  userHasLiked && styles.likeCountActive
+                ]}
+              >
+                {item.likes.length > 0 ? item.likes.length : "Like"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          
+          {/* View likes button - only show if there are likes */}
+          {item.likes.length > 0 && (
+            <TouchableOpacity 
+              style={styles.viewLikesButton}
+              onPress={() => onViewLikes(item.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewLikesText}>
+                {item.likes.length === 1 ? '1 person liked this' : `${item.likes.length} people liked this`}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
     </View>
   );
 });
@@ -125,8 +150,43 @@ export default function ShweetsScreen() {
   const inputRef = useRef<TextInput>(null);
   const [deletingShweetId, setDeletingShweetId] = useState<string | null>(null);
   const [friendsList, setFriendsList] = useState<string[]>([]);
+  
+  // New state variables for showing likes
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [selectedShweetLikes, setSelectedShweetLikes] = useState<{id: string, name: string, photoURL: string | null}[]>([]);
+  const [loadingLikes, setLoadingLikes] = useState(false);
+  
   // Track which shweets have had local like changes to prevent Firestore from overriding
   const localLikeUpdates = useRef<{[shweetId: string]: string[]}>({});
+  
+  // Add state for animation
+  const [modalAnimation] = useState(new Animated.Value(0));
+  const [backdropAnimation] = useState(new Animated.Value(0));
+  
+  // Update the animation logic to handle both opening and closing
+  useEffect(() => {
+    if (likesModalVisible) {
+      // Reset animation values
+      modalAnimation.setValue(0);
+      backdropAnimation.setValue(0);
+      
+      // Create animations
+      const backdropFade = Animated.timing(backdropAnimation, {
+        toValue: 1,
+        duration: 500, // Slower fade for backdrop
+        useNativeDriver: true,
+      });
+      
+      const contentSlide = Animated.timing(modalAnimation, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      });
+      
+      // Run animations
+      Animated.stagger(100, [backdropFade, contentSlide]).start();
+    }
+  }, [likesModalVisible]);
   
   // Fetch friends list once when component mounts
   useEffect(() => {
@@ -562,7 +622,61 @@ export default function ShweetsScreen() {
     );
   }, [refreshing, handleRefresh]);
   
-  // Update the main rendering function to use the memoized component
+  // Add function to handle viewing likes
+  const handleViewLikes = async (shweetId: string) => {
+    const shweet = shweets.find(s => s.id === shweetId);
+    if (!shweet || !shweet.likes.length) return;
+    
+    setLoadingLikes(true);
+    
+    try {
+      const likesData = await Promise.all(
+        shweet.likes.map(async (userId) => {
+          const userDocRef = doc(firestore, 'users', userId);
+          const userDoc = await getDoc(userDocRef);
+          const userData = userDoc.exists() ? userDoc.data() : {};
+          
+          return {
+            id: userId,
+            name: userData.displayName || 'Unknown User',
+            photoURL: userData.photoURL || null
+          };
+        })
+      );
+      
+      setSelectedShweetLikes(likesData);
+      setLikesModalVisible(true);
+    } catch (error) {
+      console.error('Error fetching likes data:', error);
+      Alert.alert('Error', 'Failed to load likes data');
+    } finally {
+      setLoadingLikes(false);
+    }
+  };
+  
+  // Function to handle closing the modal with animation
+  const handleCloseModal = () => {
+    // Create animations for closing
+    const backdropFade = Animated.timing(backdropAnimation, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    });
+    
+    const contentSlide = Animated.timing(modalAnimation, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    });
+    
+    // Run animations
+    Animated.parallel([contentSlide, backdropFade]).start(() => {
+      // After animation completes, hide the modal
+      setLikesModalVisible(false);
+    });
+  };
+  
+  // Update renderShweetItem function
   const renderShweetItem = useCallback(({ item }: { item: Shweet }) => (
     <ShweetItem 
       item={item}
@@ -570,8 +684,9 @@ export default function ShweetsScreen() {
       onDelete={handleDeleteShweet}
       currentUserId={userData?.uid}
       isDeleting={deletingShweetId === item.id}
+      onViewLikes={handleViewLikes}
     />
-  ), [handleLikeToggle, handleDeleteShweet, userData?.uid, deletingShweetId]);
+  ), [handleLikeToggle, handleDeleteShweet, userData?.uid, deletingShweetId, handleViewLikes]);
   
   return (
     <View style={styles.container}>
@@ -617,6 +732,97 @@ export default function ShweetsScreen() {
           updateCellsBatchingPeriod={50}
         />
       )}
+      
+      {/* Likes Modal */}
+      <Modal
+        visible={likesModalVisible}
+        transparent={true}
+        animationType="none"
+        onRequestClose={handleCloseModal}
+      >
+        <Animated.View 
+          style={[
+            styles.modalOverlay,
+            { opacity: backdropAnimation }
+          ]}
+        >
+          <Animated.View 
+            style={[
+              styles.likesModalContainer, 
+              {
+                transform: [
+                  {
+                    translateY: modalAnimation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [600, 0], // Start from further below
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ],
+                opacity: modalAnimation,
+              },
+            ]}
+          >
+            <View style={styles.likesModalHeader}>
+              <Text style={styles.likesModalTitle}>
+                {selectedShweetLikes.length === 1
+                  ? '1 person liked this'
+                  : `${selectedShweetLikes.length} people liked this`}
+              </Text>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={handleCloseModal}
+              >
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+            
+            {loadingLikes ? (
+              <View style={styles.loadingLikesContainer}>
+                <ActivityIndicator size="large" color="#6366f1" />
+                <Text style={styles.loadingLikesText}>Loading likes...</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={selectedShweetLikes}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <View style={styles.likeUserItem}>
+                    {item.photoURL ? (
+                      <Image source={{ uri: item.photoURL }} style={styles.likeUserAvatar} />
+                    ) : (
+                      <View style={styles.likeUserDefaultAvatar}>
+                        <Text style={styles.likeUserAvatarText}>{item.name.charAt(0)}</Text>
+                      </View>
+                    )}
+                    <View style={styles.likeUserInfo}>
+                      <Text style={styles.likeUserName}>{item.name}</Text>
+                      {item.id === userData?.uid && (
+                        <Text style={styles.likeUserYou}>(You)</Text>
+                      )}
+                    </View>
+                    {item.id !== userData?.uid && (
+                      <TouchableOpacity 
+                        style={styles.viewProfileButton}
+                        // For future implementation
+                      >
+                        <Text style={styles.viewProfileText}>View Profile</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+                contentContainerStyle={styles.likesListContainer}
+                ListEmptyComponent={
+                  <View style={styles.emptyLikesContainer}>
+                    <Ionicons name="heart-dislike-outline" size={48} color="#d1d5db" />
+                    <Text style={styles.emptyLikesText}>No likes yet</Text>
+                  </View>
+                }
+              />
+            )}
+          </Animated.View>
+        </Animated.View>
+      </Modal>
     </View>
   );
 }
@@ -780,18 +986,170 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 20,
   },
+  shweetFooter: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f3f4f6',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  likesSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   likeButton: {
-    padding: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 20,
-    marginRight: 5,
   },
   likeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   likeCount: {
+    marginLeft: 6,
     fontSize: 14,
     color: '#6b7280',
-    marginLeft: 4,
+    fontWeight: '500',
+  },
+  likeCountActive: {
+    color: '#6366f1',
+  },
+  viewLikesButton: {
+    marginLeft: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderLeftWidth: 1,
+    borderLeftColor: '#e5e7eb',
+  },
+  viewLikesText: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  likesModalContainer: {
+    width: '90%',
+    maxHeight: '70%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  likesModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  likesModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  closeButton: {
+    padding: 5,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingLikesContainer: {
+    padding: 30,
+    alignItems: 'center',
+  },
+  loadingLikesText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  likesListContainer: {
+    flexGrow: 1,
+  },
+  likeUserItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  likeUserAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    marginRight: 14,
+  },
+  likeUserDefaultAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  likeUserAvatarText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  likeUserInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  likeUserName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1f2937',
+  },
+  likeUserYou: {
+    marginLeft: 6,
+    fontSize: 14,
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  viewProfileButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 16,
+  },
+  viewProfileText: {
+    fontSize: 12,
+    color: '#4b5563',
+    fontWeight: '500',
+  },
+  emptyLikesContainer: {
+    padding: 30,
+    alignItems: 'center',
+  },
+  emptyLikesText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6b7280',
   },
 }); 

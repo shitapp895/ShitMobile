@@ -13,7 +13,7 @@ import { firestore } from '../../firebase/config';
 import { getRandomWord } from './wordService';
 
 // Types
-export type GameType = 'tictactoe' | 'rps' | 'wordle' | 'hangman' | 'memory';
+export type GameType = 'tictactoe' | 'rps' | 'wordle' | 'hangman' | 'memory' | 'chess';
 
 export interface BaseGame {
   id?: string;
@@ -84,7 +84,20 @@ export interface MemoryGame extends BaseGame {
   locked?: boolean;         // Whether the game is locked during card reveal
 }
 
-export type Game = TicTacToeGame | RPSGame | WordleGame | HangmanGame | MemoryGame;
+export interface ChessGame extends BaseGame {
+  type: 'chess';
+  board: { [position: string]: string }; // Position as key (e.g. "0,0"), piece as value 
+  captures: {
+    [playerId: string]: string[]; // Captured pieces for each player
+  };
+  moves: string[]; // List of moves in standard notation
+  timeRemaining: {
+    [playerId: string]: number; // Time remaining in seconds for each player
+  };
+  lastMoveTime: Timestamp; // When the last move was made
+}
+
+export type Game = TicTacToeGame | RPSGame | WordleGame | HangmanGame | MemoryGame | ChessGame;
 
 // Collection reference
 const gamesCollection = collection(firestore, 'games');
@@ -144,6 +157,16 @@ const convertGameDoc = (doc: QueryDocumentSnapshot<DocumentData>): Game => {
         scores: data.scores,
         lastFlip: data.lastFlip
       };
+    case 'chess':
+      return {
+        ...baseGame,
+        type: 'chess',
+        board: data.board,
+        captures: data.captures,
+        moves: data.moves,
+        timeRemaining: data.timeRemaining,
+        lastMoveTime: data.lastMoveTime
+      };
     default:
       throw new Error(`Unknown game type: ${data.type}`);
   }
@@ -202,12 +225,15 @@ export const createGame = async (
       };
       break;
     case 'hangman':
+      // Generate a word for each player
+      const playerWords = {};
+      for (const player of players) {
+        playerWords[player] = getRandomWord();
+      }
+      
       gameData = {
         ...gameData,
-        words: players.reduce((acc, player) => ({
-          ...acc,
-          [player]: getRandomWord()
-        }), {}),
+        words: playerWords,
         guessedLetters: players.reduce((acc, player) => ({
           ...acc,
           [player]: []
@@ -223,31 +249,64 @@ export const createGame = async (
       };
       break;
     case 'memory':
-      // Generate pairs for memory game (8 pairs for 16 cards - 4x4 grid)
-      const poop_emojis = [
-        '💩', '🧻', '🚽', '🧼', '🧴', '🚿', '🛁', '🪠'
-      ];
+      // Create pairs of emojis
+      const emojis = ['💩', '🧻', '🚽', '🧼', '🧽', '🪠', '🧴', '🚿', '🛁', '🚪', '🪥', '🧫', '🦠', '🧪', '💊', '💉', '🩹', '🩺'];
+      const pairs = [...emojis, ...emojis].slice(0, 36); // 18 pairs for 36 cards
       
-      // Create pairs (duplicate each emoji)
-      const pairs = [...poop_emojis, ...poop_emojis];
-      
-      // Shuffle using Fisher-Yates algorithm
-      const shuffledCards = [...pairs];
-      for (let i = shuffledCards.length - 1; i > 0; i--) {
+      // Shuffle the pairs using Fisher-Yates algorithm
+      for (let i = pairs.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [shuffledCards[i], shuffledCards[j]] = [shuffledCards[j], shuffledCards[i]];
+        [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
       }
       
       gameData = {
         ...gameData,
-        cards: shuffledCards,
+        cards: pairs,
         flippedCards: [],
         matchedPairs: [],
         scores: players.reduce((acc, player) => ({
           ...acc,
           [player]: 0
+        }), {})
+      };
+      break;
+    case 'chess':
+      // Create initial chess board state
+      const initialPieces = [
+        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+        ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
+      ];
+      
+      // Convert to serialized format
+      const serializedBoard = {};
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+          const piece = initialPieces[row][col];
+          if (piece) {
+            serializedBoard[`${row},${col}`] = piece;
+          }
+        }
+      }
+      
+      gameData = {
+        ...gameData,
+        board: serializedBoard,
+        captures: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: []
         }), {}),
-        lastFlip: null
+        moves: [],
+        timeRemaining: players.reduce((acc, player) => ({
+          ...acc,
+          [player]: 60 // 60 seconds = 1 minute per player
+        }), {}),
+        lastMoveTime: now
       };
       break;
   }
@@ -624,6 +683,119 @@ export const makeMove = async (gameId: string, playerId: string, move: any): Pro
           updates.winner = wordleWinner;
         }
         break;
+
+      case 'chess': {
+        // Make sure it's the player's turn
+        if (game.currentTurn !== playerId) {
+          throw new Error("Not your turn");
+        }
+        
+        // Validate move structure
+        if (!move || !move.from || !move.to) {
+          throw new Error("Invalid move format");
+        }
+        
+        // Calculate time used since last move
+        const now = Timestamp.now();
+        const lastMoveTime = game.lastMoveTime;
+        const timeElapsed = (now.seconds - lastMoveTime.seconds);
+        
+        // Update time remaining
+        const updatedTimeRemaining = { ...game.timeRemaining };
+        updatedTimeRemaining[playerId] = Math.max(0, updatedTimeRemaining[playerId] - timeElapsed);
+        
+        // If player ran out of time, they lost
+        if (updatedTimeRemaining[playerId] <= 0) {
+          // Get opponent ID
+          const opponentId = game.players.find(p => p !== playerId)!;
+          
+          const gameUpdate = {
+            status: 'completed',
+            winner: opponentId,
+            timeRemaining: updatedTimeRemaining,
+            lastUpdated: now
+          };
+          
+          await updateDoc(gameRef, gameUpdate);
+          return;
+        }
+        
+        // Check if the move is valid
+        const { from, to, capture, notation, castling } = move;
+        const [fromRow, fromCol] = from;
+        const [toRow, toCol] = to;
+        
+        // Get positions
+        const fromPos = `${fromRow},${fromCol}`;
+        const toPos = `${toRow},${toCol}`;
+        
+        // Clone the board
+        const newBoard = { ...game.board };
+        
+        // Move the piece
+        const piece = newBoard[fromPos];
+        delete newBoard[fromPos];
+        newBoard[toPos] = piece;
+        
+        // Handle castling (moving the rook as well)
+        if (castling) {
+          const { rookFrom, rookTo } = castling;
+          const [rookFromRow, rookFromCol] = rookFrom;
+          const [rookToRow, rookToCol] = rookTo;
+          
+          const rookFromPos = `${rookFromRow},${rookFromCol}`;
+          const rookToPos = `${rookToRow},${rookToCol}`;
+          
+          // Move the rook
+          const rookPiece = newBoard[rookFromPos];
+          delete newBoard[rookFromPos];
+          newBoard[rookToPos] = rookPiece;
+        }
+        
+        // Handle captures
+        const captures = { ...game.captures };
+        if (capture) {
+          captures[playerId] = [...captures[playerId], capture];
+        }
+        
+        // Add the move to history
+        const moves = [...game.moves, notation];
+        
+        // Get the next player's turn
+        const nextPlayerId = game.players.find(p => p !== playerId)!;
+        
+        // Check for game over conditions (checkmate, stalemate)
+        let status = 'active';
+        let winner = null; // Use null instead of undefined
+        
+        if (move.checkmate) {
+          status = 'completed';
+          winner = playerId;
+        } else if (move.stalemate || move.draw) {
+          status = 'completed';
+          winner = 'draw'; // Set to 'draw' for stalemate/draw
+        }
+        
+        // Create update object without undefined values
+        const gameUpdate: any = {
+          board: newBoard,
+          captures,
+          moves,
+          timeRemaining: updatedTimeRemaining,
+          lastMoveTime: now,
+          currentTurn: nextPlayerId,
+          status,
+          lastUpdated: now
+        };
+        
+        // Only include winner if it's not null
+        if (winner !== null) {
+          gameUpdate.winner = winner;
+        }
+        
+        await updateDoc(gameRef, gameUpdate);
+        break;
+      }
     }
     
     // Update the game (only for non-hangman and non-memory games)

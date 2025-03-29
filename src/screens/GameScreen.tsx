@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import { Game, subscribeToGame, makeMove, abandonGame } from '../services/database/gameService';
+import { Game, GameType, subscribeToGame, makeMove, abandonGame } from '../services/database/gameService';
 import { doc, getDoc } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import TicTacToeGame from '../components/TicTacToeGame';
 import RPSGame from '../components/RPSGame';
 import HangmanGame from '../components/HangmanGame';
 import MemoryGame from '../components/MemoryGame';
+import ChessGame from '../components/ChessGame';
 
 export default function GameScreen() {
   const route = useRoute();
@@ -193,16 +194,31 @@ export default function GameScreen() {
   const gameResult = getGameResult();
   const isDisabled = game.status !== 'active' || (game.type !== 'rps' && game.currentTurn !== userData?.uid);
 
+  const getGameTitle = (type: GameType): string => {
+    switch (type) {
+      case 'tictactoe':
+        return 'Tic Tac Toe';
+      case 'rps':
+        return 'Rock Paper Scissors';
+      case 'wordle':
+        return 'Wordle';
+      case 'hangman':
+        return 'Hangman';
+      case 'memory':
+        return 'Memory Game';
+      case 'chess':
+        return 'Toilet Chess';
+      default:
+        return 'Game';
+    }
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.header}>
         <View style={styles.headerContent}>
           <Text style={styles.gameTitle}>
-            {gameType === 'tictactoe' ? 'Tic Tac Toe' :
-             gameType === 'rps' ? 'Rock Paper Scissors' :
-             gameType === 'hangman' ? 'Toilet Hangman' :
-             gameType === 'memory' ? 'Memory Game' :
-             'Game'}
+            {getGameTitle(gameType as GameType)}
           </Text>
           <Text style={styles.opponentName}>vs {opponentName}</Text>
           <TouchableOpacity 
@@ -238,6 +254,13 @@ export default function GameScreen() {
       )}
       {game.type === 'memory' && (
         <MemoryGame
+          game={game as any}
+          onMove={handleMove}
+          disabled={isDisabled}
+        />
+      )}
+      {game.type === 'chess' && (
+        <ChessGame
           game={game as any}
           onMove={handleMove}
           disabled={isDisabled}

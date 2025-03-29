@@ -51,6 +51,13 @@ export default function GamesScreen() {
       icon: 'man',
       color: '#ef4444',
     },
+    {
+      id: 'chess',
+      title: 'Toilet Chess',
+      description: 'Classic chess with 1-minute time limit per player',
+      icon: 'trophy',
+      color: '#0891b2',
+    },
   ];
 
   // Coming soon games
@@ -68,6 +75,13 @@ export default function GamesScreen() {
       description: 'Find matching pairs of poop-themed cards',
       icon: 'copy',
       color: '#8b5cf6',
+    },
+    {
+      id: 'geography',
+      title: 'Toilet Traveler',
+      description: 'Guess the country from toilet-themed clues',
+      icon: 'globe',
+      color: '#06b6d4',
     }
   ];
 
@@ -255,7 +269,7 @@ export default function GamesScreen() {
     if (!selectedGame || !userData) return;
     
     // Prevent inviting to coming soon games
-    if (selectedGame.id === 'turdle' || selectedGame.id === 'memory') {
+    if (selectedGame.id === 'turdle' || selectedGame.id === 'memory' || selectedGame.id === 'geography') {
       Alert.alert('Coming Soon', 'This game is not yet available.');
       setShowInviteModal(false);
       return;
