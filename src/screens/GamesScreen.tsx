@@ -28,6 +28,11 @@ export default function GamesScreen() {
   const [selectedGame, setSelectedGame] = useState<GameCard | null>(null);
   const [invitesWithNames, setInvitesWithNames] = useState<Array<{ id?: string; gameType: string; senderId: string; senderName: string }>>([]);
   const [sentInvitesWithNames, setSentInvitesWithNames] = useState<Array<{ id?: string; gameType: string; receiverId: string; receiverName: string }>>([]);
+  const [stats, setStats] = useState({
+    gamesPlayed: 0,
+    wins: 0,
+    gameTypeStats: {} as Record<string, { played: number, wins: number }>
+  });
   
   // Sample game data
   const games: GameCard[] = [
@@ -272,6 +277,36 @@ export default function GamesScreen() {
     fetchRecipientNames();
   }, [sentInvites]);
 
+  // Fetch user game statistics
+  useEffect(() => {
+    const fetchGameStats = async () => {
+      if (!userData?.uid) return;
+      
+      try {
+        // Get the user document
+        const userDoc = await getDoc(doc(firestore, 'users', userData.uid));
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          
+          // Get game statistics (with defaults if not present)
+          const gamesPlayed = userData.gamesPlayed || 0;
+          const wins = userData.wins || 0;
+          
+          setStats({
+            gamesPlayed,
+            wins,
+            gameTypeStats: userData.gameTypeStats || {}
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching game statistics:', error);
+      }
+    };
+    
+    fetchGameStats();
+  }, [userData?.uid]);
+
   // Handle sending game invite
   const handleSendInvite = async (friendId: string) => {
     if (!selectedGame || !userData) return;
@@ -412,35 +447,68 @@ export default function GamesScreen() {
         
         <View style={styles.statsCard}>
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>0</Text>
+            <Text style={styles.statValue}>{stats.gamesPlayed}</Text>
             <Text style={styles.statLabel}>Games Played</Text>
           </View>
           
           <View style={styles.statDivider} />
           
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>0</Text>
+            <Text style={styles.statValue}>{stats.wins}</Text>
             <Text style={styles.statLabel}>Wins</Text>
-          </View>
-          
-          <View style={styles.statDivider} />
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>0</Text>
-            <Text style={styles.statLabel}>Achievements</Text>
+            {stats.gamesPlayed > 0 && (
+              <Text style={styles.statSubtext}>
+                {Math.round((stats.wins / stats.gamesPlayed) * 100)}% Win Rate
+              </Text>
+            )}
           </View>
         </View>
-
+        
         {/* Game Invites Section */}
-        {(receivedInvites.length > 0 || sentInvites.length > 0) && (
-          <View style={styles.invitesSection}>
-            <Text style={styles.sectionTitle}>Game Invites</Text>
-            
-            {receivedInvites.length > 0 && (
-              <View style={styles.inviteSubsection}>
-                <Text style={styles.subsectionTitle}>Received</Text>
-                {invitesWithNames.map((invite) => (
-                  <View key={invite.id} style={styles.inviteCard}>
+        <View style={styles.invitesSection}>
+          <Text style={styles.sectionTitle}>Game Invites</Text>
+          
+          {receivedInvites.length > 0 ? (
+            <View style={styles.inviteSubsection}>
+              <Text style={styles.subsectionTitle}>Received</Text>
+              {invitesWithNames.map((invite) => (
+                <View key={invite.id} style={styles.inviteCard}>
+                  <View style={styles.inviteContent}>
+                    <Ionicons name="game-controller" size={24} color="#6366f1" />
+                    <View style={styles.inviteTextContainer}>
+                      <Text style={styles.inviteText}>
+                        {getGameDisplayName(invite.gameType)}
+                      </Text>
+                      <Text style={styles.inviteSubtext}>
+                        From: {invite.senderName}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.inviteActions}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.acceptButton]}
+                      onPress={() => handleAcceptInvite(invite.id!)}
+                    >
+                      <Text style={styles.actionButtonText}>Accept</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.declineButton]}
+                      onPress={() => handleDeclineInvite(invite.id!)}
+                    >
+                      <Text style={styles.actionButtonText}>Decline</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {sentInvites.length > 0 ? (
+            <View style={styles.inviteSubsection}>
+              <Text style={styles.subsectionTitle}>Sent</Text>
+              {sentInvitesWithNames.map((invite) => (
+                <View key={invite.id} style={styles.inviteCard}>
+                  <View style={styles.inviteCardContent}>
                     <View style={styles.inviteContent}>
                       <Ionicons name="game-controller" size={24} color="#6366f1" />
                       <View style={styles.inviteTextContainer}>
@@ -448,59 +516,29 @@ export default function GamesScreen() {
                           {getGameDisplayName(invite.gameType)}
                         </Text>
                         <Text style={styles.inviteSubtext}>
-                          From: {invite.senderName}
+                          To: {invite.receiverName}
                         </Text>
                       </View>
                     </View>
-                    <View style={styles.inviteActions}>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.acceptButton]}
-                        onPress={() => handleAcceptInvite(invite.id!)}
-                      >
-                        <Text style={styles.actionButtonText}>Accept</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.declineButton]}
-                        onPress={() => handleDeclineInvite(invite.id!)}
-                      >
-                        <Text style={styles.actionButtonText}>Decline</Text>
-                      </TouchableOpacity>
-                    </View>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.cancelButton]}
+                      onPress={() => handleCancelInvite(invite.id!)}
+                    >
+                      <Text style={styles.actionButtonText}>Cancel</Text>
+                    </TouchableOpacity>
                   </View>
-                ))}
-              </View>
-            )}
-
-            {sentInvites.length > 0 && (
-              <View style={styles.inviteSubsection}>
-                <Text style={styles.subsectionTitle}>Sent</Text>
-                {sentInvitesWithNames.map((invite) => (
-                  <View key={invite.id} style={styles.inviteCard}>
-                    <View style={styles.inviteCardContent}>
-                      <View style={styles.inviteContent}>
-                        <Ionicons name="game-controller" size={24} color="#6366f1" />
-                        <View style={styles.inviteTextContainer}>
-                          <Text style={styles.inviteText}>
-                            {getGameDisplayName(invite.gameType)}
-                          </Text>
-                          <Text style={styles.inviteSubtext}>
-                            To: {invite.receiverName}
-                          </Text>
-                        </View>
-                      </View>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.cancelButton]}
-                        onPress={() => handleCancelInvite(invite.id!)}
-                      >
-                        <Text style={styles.actionButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
+                </View>
+              ))}
+            </View>
+          ) : null}
+          
+          {receivedInvites.length === 0 && sentInvites.length === 0 && (
+            <View style={styles.emptyInvites}>
+              <Text style={styles.emptyText}>No active game invites</Text>
+              <Text style={styles.emptySubtext}>Invite friends to play a game!</Text>
+            </View>
+          )}
+        </View>
         
         <View style={styles.gamesSection}>
           <Text style={styles.sectionTitle}>Available Games</Text>
@@ -591,6 +629,7 @@ const styles = StyleSheet.create({
   statItem: {
     flex: 1,
     alignItems: 'center',
+    paddingVertical: 10,
   },
   statValue: {
     fontSize: 20,
@@ -835,5 +874,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  statSubtext: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  sectionHint: {
+    padding: 15,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    alignItems: 'center',
+  },
+  hintText: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  emptyInvites: {
+    padding: 20,
+    alignItems: 'center',
   },
 }); 
