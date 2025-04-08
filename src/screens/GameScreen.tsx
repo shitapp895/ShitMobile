@@ -11,7 +11,6 @@ import TicTacToeGame from '../components/TicTacToeGame';
 import RPSGame from '../components/RPSGame';
 import HangmanGame from '../components/HangmanGame';
 import MemoryGame from '../components/MemoryGame';
-import ChessGame from '../components/ChessGame';
 
 export default function GameScreen() {
   const route = useRoute();
@@ -128,29 +127,9 @@ export default function GameScreen() {
     return null;
   }
 
-  if (game?.type === 'memory') {
-    return (
-      <View style={styles.container}>
-        <View style={styles.comingSoonContainer}>
-          <Text style={styles.comingSoonTitle}>Coming Soon</Text>
-          <Text style={styles.comingSoonText}>The Memory Match game is currently under development.</Text>
-          <Text style={styles.comingSoonText}>Check back later!</Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (!game) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading game...</Text>
-      </View>
-    );
-  }
-
   const getGameResult = () => {
     // Force game result to appear when status is appropriate 
-    if ((game.status === 'completed' || game.status === 'abandoned') && userData?.uid) {
+    if (game && (game.status === 'completed' || game.status === 'abandoned') && userData?.uid) {
       console.log('Game over - preparing result for player:', userData.uid);
       console.log('Game data:', game);
       
@@ -162,7 +141,7 @@ export default function GameScreen() {
       };
 
       // Always include word for Hangman games
-      if (game.type === 'hangman' && game.words) {
+      if (game.type === 'hangman' && 'words' in game) {
         // Get my word directly from game.words object
         const myWord = game.words[userData.uid];
         console.log('Found player word:', myWord);
@@ -191,6 +170,14 @@ export default function GameScreen() {
     return null;
   };
 
+  if (!game) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.loadingText}>Loading game...</Text>
+      </View>
+    );
+  }
+
   const gameResult = getGameResult();
   const isDisabled = game.status !== 'active' || (game.type !== 'rps' && game.currentTurn !== userData?.uid);
 
@@ -213,6 +200,66 @@ export default function GameScreen() {
     }
   };
 
+  // Render the appropriate game component based on type
+  const renderGameComponent = () => {
+    if (!game) return null;
+
+    switch (game.type) {
+      case 'tictactoe':
+        return (
+          <TicTacToeGame
+            game={game}
+            onMove={handleMove}
+            disabled={isDisabled}
+          />
+        );
+      case 'rps':
+        if (!userData?.uid) return null;
+        return (
+          <RPSGame
+            game={game}
+            onMove={handleMove}
+            disabled={isDisabled}
+            userId={userData.uid}
+          />
+        );
+      case 'hangman':
+        return (
+          <HangmanGame
+            game={game as any}
+            onMove={handleMove}
+            disabled={isDisabled}
+          />
+        );
+      case 'memory':
+        return (
+          <View style={styles.container}>
+            <View style={styles.comingSoonContainer}>
+              <Text style={styles.comingSoonTitle}>Coming Soon</Text>
+              <Text style={styles.comingSoonText}>The Memory Match game is currently under development.</Text>
+              <Text style={styles.comingSoonText}>Check back later!</Text>
+            </View>
+          </View>
+        );
+      case 'chess':
+        return (
+          <View style={styles.container}>
+            <View style={styles.comingSoonContainer}>
+              <Text style={styles.comingSoonTitle}>Coming Soon</Text>
+              <Text style={styles.comingSoonText}>Toilet Chess is currently under development.</Text>
+              <Text style={styles.comingSoonText}>Check back later!</Text>
+            </View>
+          </View>
+        );
+      default:
+        return (
+          <View style={styles.container}>
+            <Text style={styles.loadingText}>Unsupported game type</Text>
+          </View>
+        );
+    }
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.header}>
@@ -230,42 +277,7 @@ export default function GameScreen() {
         </View>
       </SafeAreaView>
 
-      {game.type === 'tictactoe' && (
-        <TicTacToeGame
-          game={game}
-          onMove={handleMove}
-          disabled={isDisabled}
-        />
-      )}
-      {game.type === 'rps' && userData?.uid && (
-        <RPSGame
-          game={game}
-          onMove={handleMove}
-          disabled={isDisabled}
-          userId={userData.uid}
-        />
-      )}
-      {game.type === 'hangman' && (
-        <HangmanGame
-          game={game as any}
-          onMove={handleMove}
-          disabled={isDisabled}
-        />
-      )}
-      {game.type === 'memory' && (
-        <MemoryGame
-          game={game as any}
-          onMove={handleMove}
-          disabled={isDisabled}
-        />
-      )}
-      {game.type === 'chess' && (
-        <ChessGame
-          game={game as any}
-          onMove={handleMove}
-          disabled={isDisabled}
-        />
-      )}
+      {renderGameComponent()}
 
       {gameResult && (
         <SafeAreaView style={styles.resultOverlay}>
@@ -275,7 +287,7 @@ export default function GameScreen() {
             </Text>
             
             {/* Display the player's word if it's a Hangman game */}
-            {game.type === 'hangman' && gameResult.word && (
+            {game?.type === 'hangman' && gameResult.word && (
               <View style={styles.wordRevealContainer}>
                 <Text style={styles.wordRevealLabel}>
                   Your word was:

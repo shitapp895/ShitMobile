@@ -43,13 +43,33 @@ const formatTimestamp = (timestamp: any) => {
 // Create a memoized ShweetItem component to prevent unnecessary re-renders
 const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting, onViewLikes }: { 
   item: Shweet, 
-  onLike: (id: string) => void, 
+  onLike: (id: string, currentLikes: string[]) => void, 
   onDelete: (id: string) => void, 
   currentUserId: string | undefined,
   isDeleting: boolean,
   onViewLikes: (id: string) => void
 }) => {
-  const userHasLiked = item.likes.includes(currentUserId || '');
+  // Local state for optimistic UI updates
+  const [likes, setLikes] = useState<string[]>(item.likes);
+  const userHasLiked = likes.includes(currentUserId || '');
+  
+  // Handle like action at the component level with optimistic update
+  const handleLike = () => {
+    const newLikes = userHasLiked
+      ? likes.filter(id => id !== currentUserId)
+      : [...likes, currentUserId || ''];
+    
+    // Update local state immediately
+    setLikes(newLikes);
+    
+    // Call parent handler for backend update
+    onLike(item.id, newLikes);
+  };
+  
+  // Update local likes state if props change (unlikely in most cases)
+  useEffect(() => {
+    setLikes(item.likes);
+  }, [item.likes]);
   
   return (
     <View style={styles.shweetCard}>
@@ -102,7 +122,7 @@ const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting, on
         <View style={styles.likesSection}>
           <TouchableOpacity 
             style={styles.likeButton}
-            onPress={() => onLike(item.id)}
+            onPress={handleLike}
             activeOpacity={0.7}
           >
             <View style={styles.likeContainer}>
@@ -117,26 +137,34 @@ const ShweetItem = memo(({ item, onLike, onDelete, currentUserId, isDeleting, on
                   userHasLiked && styles.likeCountActive
                 ]}
               >
-                {item.likes.length > 0 ? item.likes.length : "Like"}
+                {likes.length > 0 ? likes.length : "Like"}
               </Text>
             </View>
           </TouchableOpacity>
           
           {/* View likes button - only show if there are likes */}
-          {item.likes.length > 0 && (
+          {likes.length > 0 && (
             <TouchableOpacity 
               style={styles.viewLikesButton}
               onPress={() => onViewLikes(item.id)}
               activeOpacity={0.7}
             >
               <Text style={styles.viewLikesText}>
-                {item.likes.length === 1 ? '1 person liked this' : `${item.likes.length} people liked this`}
+                {likes.length === 1 ? '1 person liked this' : `${likes.length} people liked this`}
               </Text>
             </TouchableOpacity>
           )}
         </View>
       </View>
     </View>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function for memo
+  // Only re-render when these specific props change
+  return (
+    prevProps.item.id === nextProps.item.id &&
+    prevProps.isDeleting === nextProps.isDeleting &&
+    prevProps.currentUserId === nextProps.currentUserId
   );
 });
 
@@ -344,26 +372,26 @@ export default function ShweetsScreen() {
             shweetsList.push(shweet);
           } else {
             // Need to fetch author info
-            const authorDocRef = doc(firestore, 'users', shweetData.authorId);
-            const authorDoc = await getDoc(authorDocRef);
-            const authorData = authorDoc.exists() ? authorDoc.data() : {};
+          const authorDocRef = doc(firestore, 'users', shweetData.authorId);
+          const authorDoc = await getDoc(authorDocRef);
+          const authorData = authorDoc.exists() ? authorDoc.data() : {};
             authorName = authorData.displayName || 'Unknown User';
             authorPhotoURL = authorData.photoURL || null;
             isShitting = authorData.isShitting || false;
-            
-            const shweet = {
-              id: document.id,
-              authorId: shweetData.authorId,
+          
+          const shweet = {
+            id: document.id,
+            authorId: shweetData.authorId,
               authorName,
               authorPhotoURL,
-              content: shweetData.content,
-              timestamp: shweetData.timestamp,
+            content: shweetData.content,
+            timestamp: shweetData.timestamp,
               likes,
               isShitting,
-            };
-            
+          };
+          
             console.log(`Adding new shweet ${document.id} to list`);
-            shweetsList.push(shweet);
+          shweetsList.push(shweet);
           }
           
           // Setup individual status listeners for each author
@@ -508,32 +536,24 @@ export default function ShweetsScreen() {
   }, [shweets, userData]);
   
   // Handle like/unlike a shweet
-  const handleLikeToggle = useCallback(async (shweetId: string) => {
+  const handleLikeToggle = useCallback(async (shweetId: string, newLikes: string[]) => {
     if (!userData?.uid) return;
     
-    // Find the shweet in our local state
+    // Find the shweet in our local state to keep track of backend state
     const shweetIndex = shweets.findIndex(s => s.id === shweetId);
     if (shweetIndex === -1) return;
     
     const shweet = shweets[shweetIndex];
     const userHasLiked = shweet.likes.includes(userData.uid);
     
-    // Create the new likes array
-    let newLikes: string[];
-    if (userHasLiked) {
-      // Unlike - filter out user ID
-      newLikes = shweet.likes.filter(id => id !== userData.uid);
-    } else {
-      // Like - add user ID
-      newLikes = [...shweet.likes, userData.uid];
-    }
-    
     // Store this update in our ref to prevent Firestore from overriding it
     localLikeUpdates.current[shweetId] = newLikes;
     
-    // Optimistically update UI immediately
+    // Update the global state without triggering re-renders of unaffected items
     setShweets(currentShweets => {
+      // Create a new array reference, but reuse item references for unchanged items
       const updatedShweets = [...currentShweets];
+      // Only create a new reference for the changed item
       const shweetToUpdate = { ...updatedShweets[shweetIndex] };
       shweetToUpdate.likes = newLikes;
       updatedShweets[shweetIndex] = shweetToUpdate;
@@ -559,22 +579,22 @@ export default function ShweetsScreen() {
       delete localLikeUpdates.current[shweetId];
     } catch (error) {
       console.error('Error toggling like:', error);
-      // Revert the optimistic update on error
+      
+      // Revert the global state
+      setShweets(currentShweets => {
+        const updatedShweets = [...currentShweets];
+        if (updatedShweets[shweetIndex]) {
+          const revertedShweet = { ...updatedShweets[shweetIndex] };
+          revertedShweet.likes = shweet.likes; // Use original likes state
+          updatedShweets[shweetIndex] = revertedShweet;
+        }
+        return updatedShweets;
+      });
+      
+      // Remove failed update from local override tracking
       delete localLikeUpdates.current[shweetId];
-      revertLikeUpdate(shweet, shweetIndex);
     }
   }, [userData, shweets]);
-  
-  // Helper function to revert like update on error
-  const revertLikeUpdate = useCallback((originalShweet: Shweet, shweetIndex: number) => {
-    setShweets(currentShweets => {
-      const updatedShweets = [...currentShweets];
-      if (updatedShweets[shweetIndex]) {
-        updatedShweets[shweetIndex] = originalShweet;
-      }
-      return updatedShweets;
-    });
-  }, []);
   
   // Check and fix friend relationships if needed
   const checkFriendRelationships = async () => {
@@ -689,18 +709,18 @@ export default function ShweetsScreen() {
   ), [handleLikeToggle, handleDeleteShweet, userData?.uid, deletingShweetId, handleViewLikes]);
   
   return (
-    <View style={styles.container}>
-      <View style={styles.composeContainer}>
-        <View style={styles.inputContainer}>
-          <TextInput
-            ref={inputRef}
-            style={styles.input}
+      <View style={styles.container}>
+        <View style={styles.composeContainer}>
+          <View style={styles.inputContainer}>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
             placeholder="Send your friends a Shweet..."
-            multiline
-            value={newShweet}
-            onChangeText={setNewShweet}
+              multiline
+              value={newShweet}
+              onChangeText={setNewShweet}
             placeholderTextColor="#9ca3af"
-          />
+            />
           <TouchableOpacity 
             style={styles.sendButton}
             onPress={handlePostShweet}
@@ -713,18 +733,18 @@ export default function ShweetsScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </View>
-      
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#10b981" />
         </View>
+        
+        {loading ? (
+          <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#10b981" />
+          </View>
       ) : (
-        <FlatList
-          data={shweets}
+          <FlatList
+            data={shweets}
           keyExtractor={(item) => item.id}
-          renderItem={renderShweetItem}
-          contentContainerStyle={styles.shweetsList}
+            renderItem={renderShweetItem}
+            contentContainerStyle={styles.shweetsList}
           refreshControl={renderRefreshControl()}
           windowSize={5}
           removeClippedSubviews={true}
@@ -809,8 +829,8 @@ export default function ShweetsScreen() {
                         <Text style={styles.viewProfileText}>View Profile</Text>
                       </TouchableOpacity>
                     )}
-                  </View>
-                )}
+          </View>
+        )}
                 contentContainerStyle={styles.likesListContainer}
                 ListEmptyComponent={
                   <View style={styles.emptyLikesContainer}>
@@ -823,7 +843,7 @@ export default function ShweetsScreen() {
           </Animated.View>
         </Animated.View>
       </Modal>
-    </View>
+      </View>
   );
 }
 

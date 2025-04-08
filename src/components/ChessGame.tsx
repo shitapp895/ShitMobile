@@ -45,19 +45,28 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
     // Get current user ID from Firebase Auth
     const currentUserId = auth.currentUser?.uid;
     
-    if (currentUserId && game.players.length === 2) {
+    if (currentUserId && game.players && game.players.length === 2) {
       // First player (index 0) is always white in our data model
       const isWhitePlayer = game.players[0] === currentUserId;
       setPlayerColor(isWhitePlayer ? 'white' : 'black');
     }
     
     // Set initial time
-    setTimeLeft(game.timeRemaining);
+    if (game.timeRemaining) {
+      setTimeLeft(game.timeRemaining);
+    } else {
+      // Default time if not available
+      const defaultTime = game.players?.reduce((acc, playerId) => ({
+        ...acc,
+        [playerId]: 300 // 5 minutes default
+      }), {}) || {};
+      setTimeLeft(defaultTime);
+    }
   }, []); // Empty dependency array means this only runs once
   
   // Handle timer
   useEffect(() => {
-    if (game.status === 'active') {
+    if (game.status === 'active' && game.currentTurn) {
       timerRef.current = setInterval(() => {
         setTimeLeft(prevTime => {
           const newTime = { ...prevTime };
@@ -79,7 +88,8 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
   
   // Check if time runs out
   useEffect(() => {
-    if (timeLeft[game.currentTurn] !== undefined && 
+    if (game.currentTurn && 
+        timeLeft[game.currentTurn] !== undefined && 
         timeLeft[game.currentTurn] <= 0 && 
         game.status === 'active') {
       Alert.alert('Time\'s up!', `${getPlayerName(game.currentTurn)} ran out of time!`);
@@ -87,10 +97,12 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
   }, [timeLeft, game.currentTurn, game.status]);
   
   const getPlayerName = (playerId: string) => {
+    if (!game.players || !playerId) return 'Unknown';
     return playerId === game.players[0] ? 'White' : 'Black';
   };
   
   const formatTime = (seconds: number) => {
+    if (seconds === undefined || seconds === null) return '0:00';
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
@@ -98,6 +110,7 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
   
   // Get piece at position
   const getPiece = (row: number, col: number): string => {
+    if (!game.board) return '';
     return game.board[`${row},${col}`] || '';
   };
   
@@ -588,7 +601,17 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
   };
   
   const renderPiece = (piece: string) => {
-    return chessPieces[piece] || '';
+    if (!piece) return null;
+    const imageUrl = chessPieces[piece];
+    if (!imageUrl) return null;
+    
+    return (
+      <Image 
+        source={{ uri: imageUrl }} 
+        style={{ width: PIECE_SIZE, height: PIECE_SIZE }}
+        resizeMode="contain"
+      />
+    );
   };
   
   const renderSquare = (row: number, col: number) => {
@@ -614,11 +637,7 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
             styles.pieceContainer,
             isSelected && styles.selectedPieceContainer
           ]}>
-            <Image 
-              source={{ uri: renderPiece(piece) }} 
-              style={styles.pieceImage}
-              resizeMode="contain"
-            />
+            {renderPiece(piece)}
           </View>
         ) : isPossibleMove && (
           <View style={styles.possibleMoveIndicator} />
@@ -629,6 +648,14 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
   
   // Create board row display with proper orientation based on player color
   const renderBoard = () => {
+    if (!game.board) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Chess board failed to load</Text>
+        </View>
+      );
+    }
+    
     // Create array of row indices
     let rowIndices = Array(8).fill(null).map((_, idx) => idx);
     
@@ -651,6 +678,16 @@ const ChessGame: React.FC<ChessGameProps> = ({ game, onMove, disabled }) => {
       </View>
     );
   };
+  
+  if (!game.board || !game.players || game.players.length !== 2) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>
+          Unable to load chess game. Missing required data.
+        </Text>
+      </View>
+    );
+  }
   
   return (
     <View style={styles.container}>
@@ -841,6 +878,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 5,
     elevation: 3,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 18,
+    textAlign: 'center',
   },
 });
 
