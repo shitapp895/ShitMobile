@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, Modal } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, FontAwesome, FontAwesome5 } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useGameInvites } from '../hooks/useGameInvites';
 import { GameInviteBadge } from '../components/GameInviteBadge';
@@ -16,6 +16,7 @@ interface GameCard {
   description: string;
   icon: string;
   color: string;
+  iconType?: string;
 }
 
 export default function GamesScreen() {
@@ -34,29 +35,33 @@ export default function GamesScreen() {
       id: 'tictactoe',
       title: 'Tic Tac Toe',
       description: 'Classic game with custom markers (💩 vs 🧻)',
-      icon: 'grid',
+      icon: 'border-all',
       color: '#10b981',
+      iconType: 'fontawesome5'
     },
     {
       id: 'rps',
       title: 'Rock Paper Scissors',
       description: 'Themed choices: Poop, Toilet Paper, Plunger',
-      icon: 'hand-right',
+      icon: 'hand-rock',
       color: '#6366f1',
+      iconType: 'fontawesome5'
     },
     {
       id: 'hangman',
       title: 'Hangman',
       description: 'Guess the word before you run out of toilet paper',
-      icon: 'man',
+      icon: "man",
       color: '#ef4444',
+      
     },
     {
       id: 'chess',
       title: 'Toilet Chess',
       description: 'Classic chess with 1-minute time limit per player',
-      icon: 'trophy',
+      icon: 'chess-pawn',
       color: '#0891b2',
+      iconType: 'fontawesome5'
     },
   ];
 
@@ -66,22 +71,25 @@ export default function GamesScreen() {
       id: 'turdle',
       title: 'Turdle',
       description: 'Guess the bathroom-themed word in 6 tries',
-      icon: 'text',
+      icon: 'spell-check',
       color: '#f59e0b',
+      iconType: 'fontawesome5'
     },
     {
       id: 'memory',
       title: 'Memory Match',
       description: 'Find matching pairs of poop-themed cards',
-      icon: 'copy',
+      icon: 'clone',
       color: '#8b5cf6',
+      iconType: 'fontawesome5'
     },
     {
       id: 'geography',
       title: 'Toilet Traveler',
       description: 'Guess the country from toilet-themed clues',
-      icon: 'globe',
+      icon: 'globe-americas',
       color: '#06b6d4',
+      iconType: 'fontawesome5'
     }
   ];
 
@@ -316,6 +324,16 @@ export default function GamesScreen() {
     }
   };
 
+  // Render the appropriate icon based on icon type
+  const renderGameIcon = (game: GameCard) => {
+    if (game.iconType === 'fontawesome5') {
+      return <FontAwesome5 name={game.icon as any} size={32} color="#fff" />;
+    } else if (game.iconType === 'fontawesome') {
+      return <FontAwesome name={game.icon as any} size={32} color="#fff" />;
+    }
+    return <Ionicons name={game.icon as any} size={32} color="#fff" />;
+  };
+
   // Render a game card
   const renderGameCard = (game: GameCard) => (
     <TouchableOpacity 
@@ -327,7 +345,7 @@ export default function GamesScreen() {
       }}
     >
       <View style={[styles.gameIconContainer, { backgroundColor: game.color }]}>
-        <Ionicons name={game.icon as any} size={32} color="#fff" />
+        {renderGameIcon(game)}
       </View>
       
       <View style={styles.gameInfo}>
@@ -346,7 +364,7 @@ export default function GamesScreen() {
       style={[styles.gameCard, styles.comingSoonCard]}
     >
       <View style={[styles.gameIconContainer, { backgroundColor: game.color }]}>
-        <Ionicons name={game.icon as any} size={32} color="#fff" />
+        {renderGameIcon(game)}
       </View>
       
       <View style={styles.gameInfo}>
